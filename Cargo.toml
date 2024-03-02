@@ -1,0 +1,17 @@
+[package]
+name = "library"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+anndata = "0.2.1"
+anndata-hdf5 = "0.1.0"
+polars = { version = "0.35", features = ["lazy", "decompress-fast", "ndarray", "dtype-full"] }
+ndarray = { version = "0.15" }
+nalgebra-sparse = "0.9"
+smallvec = "1.11"
+rayon = "1.8"
+permutation = "0.4"
+
