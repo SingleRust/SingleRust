@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use anndata::{AnnData, Backend};
+use anndata::{AnnData, AnnDataOp, Backend};
 use anndata_hdf5::{H5, H5File};
 use console::style;
 
@@ -36,6 +36,8 @@ pub fn load_h5ad<P: AsRef<Path>>(path: &P, scope: Option<OpenScope>) -> Result<A
         None => H5::open(path)?,
     };
     let anndata = AnnData::<H5>::open(file)?;
+    //let csr_matrix = extract_csr_matrix(&anndata)?;
+    //anndata.set_x(csr_matrix)?;
     Ok(anndata)
 }
 

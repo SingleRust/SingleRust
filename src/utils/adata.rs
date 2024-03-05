@@ -3,6 +3,7 @@ use std::path::Path;
 
 use anndata::{AnnData, AnnDataOp, Backend};
 use anndata::data::SelectInfoElem;
+use nalgebra_sparse::{CscMatrix, CsrMatrix};
 
 pub fn apply_obs_names_to_adata<P: AsRef<Path>, B: Backend>(path: &P, adata: &AnnData<B>) -> Result<(), Box<dyn Error>> {
     let obs_names = crate::utils::io::read_list_to_dataframe_index(path);
@@ -47,9 +48,38 @@ fn bool_to_usize_vec(bool_vec: &[bool]) -> Vec<usize> {
     bool_vec.iter().enumerate().filter(|(_, &x)| x).map(|(i, _)| i).collect::<Vec<usize>>()
 }
 
+pub fn extract_csr_matrix<B: Backend>(adata: &AnnData<B>) -> Result<CsrMatrix<f64>, Box<dyn Error>> {
+    let mut matrix = adata.get_x().inner();
+    let matrix_type = matrix.dtype().to_string();
+    let matrix_type = matrix_type.split('(').next().unwrap();
+    if matrix_type == "CscMatrix" {
+        let csc_matrix = matrix.data::<CscMatrix<f64>>()?;
+        let csr_matrix = CsrMatrix::from(&csc_matrix);
+        Ok(csr_matrix.clone())
+    } else {
+        let csr_matrix = matrix.data::<CsrMatrix<f64>>()?;
+        Ok(csr_matrix.clone())
+    }
+}
+
+pub fn extract_csc_matrix<B: Backend>(adata: &AnnData<B>) -> Result<CscMatrix<f64>, Box<dyn Error>> {
+    let mut matrix = adata.get_x().inner();
+    let matrix_type = matrix.dtype().to_string();
+    let matrix_type = matrix_type.split('(').next().unwrap();
+    if matrix_type == "CsrMatrix" {
+        let csr_matrix = matrix.data::<CsrMatrix<f64>>()?;
+        let csc_matrix = CscMatrix::from(&csr_matrix);
+        Ok(csc_matrix.clone())
+    } else {
+        let csc_matrix = matrix.data::<CscMatrix<f64>>()?;
+        Ok(csc_matrix.clone())
+    }
+}
+
 
 #[cfg(test)]
 mod tests {
+    use crate::io::load_h5ad;
     use crate::utils::io::file_exists;
 
     use super::*;
@@ -80,5 +110,13 @@ mod tests {
         println!("{:?}", matrix_adata.n_vars());
         println!("{:?}", select_vec.iter().filter(|&x| *x).count());
         assert_eq!(matrix_adata.n_vars(), select_vec.iter().filter(|&x| *x).count());
+    }
+
+    #[test]
+    fn test() {
+        let path_to_file = std::string::String::from("data/sciPlex1_HEK293T.h5ad");
+        let anndata = load_h5ad(&path_to_file, None).expect("Failed to load h5ad");
+        let csr_matrix = extract_csr_matrix(&anndata).expect("Failed to extract csr matrix");
+        assert_eq!(csr_matrix.ncols(), anndata.n_vars())
     }
 }
