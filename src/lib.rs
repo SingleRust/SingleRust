@@ -1,3 +1,3 @@
-mod io;
-mod preprocessing;
-mod utils;
+pub mod io;
+pub mod preprocessing;
+pub mod utils;
