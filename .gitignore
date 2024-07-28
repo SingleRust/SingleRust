@@ -2,3 +2,4 @@
 /Cargo.lock
 data/
 .idea/
+.DS_Store

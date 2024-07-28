@@ -1,14 +1,19 @@
 [package]
-name = "singleRust"
+name = "single_rust"
 version = "0.1.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-anndata = "0.2.1"
-anndata-hdf5 = "0.1.0"
-polars = { version = "0.35", features = ["lazy", "decompress-fast", "ndarray", "dtype-full"] }
+anndata = "0.4.2"
+anndata-hdf5 = "0.3.0"
+polars = { version = "0.35", features = [
+    "lazy",
+    "decompress-fast",
+    "ndarray",
+    "dtype-full",
+] }
 ndarray = { version = "0.15" }
 nalgebra-sparse = "0.9"
 smallvec = "1.11"
@@ -18,3 +23,4 @@ flate2 = "1.0.28"
 itertools = "0.11.0"
 indicatif = "0.17.8"
 console = "0.15.8"
+anyhow = "1.0.86"
