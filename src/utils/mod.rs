@@ -2,6 +2,9 @@ use anndata::{data::SelectInfoElem, AnnData, AnnDataOp, ArrayData, ArrayElemOp, 
 use anyhow::anyhow;
 use nalgebra_sparse::{CscMatrix, CsrMatrix};
 
+pub mod io;
+pub mod processing;
+
 pub fn get_gene_counts<B: Backend>(adata: &AnnData<B>, gene_index: usize) -> anyhow::Result<Vec<f64>> {
     let x = adata.x();
 

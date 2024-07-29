@@ -4,7 +4,9 @@ use anndata::{
 };
 use nalgebra_sparse::{csr::CsrMatrix, CscMatrix};
 
-pub fn compute_n_genes_chunked<B: Backend>(adata: &mut AnnData<B>) -> anyhow::Result<Vec<u32>> {
+// GENE SECTION
+
+pub fn compute_n_genes_chunked<B: Backend>(adata: &AnnData<B>) -> anyhow::Result<Vec<u32>> {
     let x = adata.x();
     let shape = x
         .shape()
@@ -18,7 +20,7 @@ pub fn compute_n_genes_chunked<B: Backend>(adata: &mut AnnData<B>) -> anyhow::Re
     }
 }
 
-pub fn compute_n_genes<B: Backend>(adata: &mut AnnData<B>) -> anyhow::Result<Vec<u32>> {
+pub fn compute_n_genes<B: Backend>(adata: &AnnData<B>) -> anyhow::Result<Vec<u32>> {
     let x = adata.x().get::<ArrayData>()?.expect("X matrix not found");
 
     let n_genes = match x {
@@ -65,11 +67,18 @@ fn compute_n_genes_csc_chunked<T: ArrayElemOp>(x: &T, n_rows: usize) -> anyhow::
     Ok(n_genes)
 }
 
-fn compute_n_genes_csc(csc: &DynCscMatrix) -> Vec<u32> {
+fn compute_n_genes_csc(csc: &DynCscMatrix) -> anyhow::Result<Vec<u32>> {
     let csc_matrix: CscMatrix<f64> = csc.clone().try_into().expect("Could not convert data.");
     let mut n_genes = vec![0; csc_matrix.nrows()];
     for &row_idx in csc_matrix.row_indices() {
         n_genes[row_idx] += 1;
     }
-    n_genes
+    Ok(n_genes)
 }
+
+// CELL SECTION
+
+fn compute_n_cells_csr(csr: &DynCsrMatrix) -> Vec<u32> {
+    todo!();
+}
+

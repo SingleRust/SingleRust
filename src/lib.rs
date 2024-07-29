@@ -1,5 +1,6 @@
 pub mod processing;
 pub mod utils;
+pub mod io;
 
 #[cfg(test)]
 mod tests {
