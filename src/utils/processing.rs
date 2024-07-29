@@ -2,6 +2,7 @@ use anndata::{
     data::{DynCscMatrix, DynCsrMatrix},
     AnnData, AnnDataOp, ArrayData, ArrayElemOp, Backend,
 };
+use anyhow::Ok;
 use nalgebra_sparse::{csr::CsrMatrix, CscMatrix};
 
 // GENE SECTION
@@ -29,16 +30,17 @@ pub fn compute_n_genes<B: Backend>(adata: &AnnData<B>) -> anyhow::Result<Vec<u32
         _ => return Err(anyhow::anyhow!("Unsupported array type for X")),
     };
 
-    Ok(n_genes)
+    n_genes
 }
 
-fn compute_n_genes_csr(csr: &DynCsrMatrix) -> Vec<u32> {
+fn compute_n_genes_csr(csr: &DynCsrMatrix) -> anyhow::Result<Vec<u32>> {
     let csr_matrix: CsrMatrix<f64> = csr.clone().try_into().expect("Could not convert data.");
-    csr_matrix
+    let ret = csr_matrix
         .row_offsets()
         .windows(2)
         .map(|w| (w[1] - w[0]) as u32)
-        .collect()
+        .collect();
+    Ok(ret)
 }
 
 fn compute_n_genes_csr_chunked<T: ArrayElemOp>(x: &T, n_rows: usize) -> anyhow::Result<Vec<u32>> {
