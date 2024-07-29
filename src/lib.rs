@@ -1,9 +1,6 @@
 pub mod processing;
 pub mod utils;
 
-pub use crate::processing::*;
-pub use crate::utils::*;
-
 #[cfg(test)]
 mod tests {
     use anndata::Backend;
