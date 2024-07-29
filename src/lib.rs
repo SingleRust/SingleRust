@@ -1,5 +1,5 @@
-mod processing;
-mod utils;
+pub mod processing;
+pub mod utils;
 
 
 
@@ -26,6 +26,6 @@ mod tests {
         println!("It took about {:.2?} seconds", elapsed);
     }
 
-    
+
 
 }
