@@ -8,19 +8,19 @@ edition = "2021"
 [dependencies]
 anndata = "0.4.2"
 anndata-hdf5 = "0.3.0"
-polars = { version = "0.35", features = [
+polars = { version = "0.41.3", features = [
     "lazy",
     "decompress-fast",
     "ndarray",
     "dtype-full",
 ] }
 ndarray = { version = "0.15" }
-nalgebra-sparse = "0.9"
+nalgebra-sparse = "0.9.0"
 smallvec = "1.11"
 rayon = "1.9.0"
 permutation = "0.4"
 flate2 = "1.0.28"
-itertools = "0.11.0"
+itertools = "0.13.0"
 indicatif = "0.17.8"
 console = "0.15.8"
 anyhow = "1.0.86"
