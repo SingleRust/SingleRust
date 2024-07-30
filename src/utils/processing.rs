@@ -46,10 +46,10 @@ fn compute_n_genes_csr(csr: &DynCsrMatrix) -> anyhow::Result<Vec<u32>> {
     Ok(ret)
 }
 
-fn compute_n_genes_csr_chunked<T: ArrayElemOp>(x: &T, n_rows: usize) -> anyhow::Result<Vec<u32>> {
+fn compute_n_genes_csr_chunked<T: ArrayElemOp>(x: &T, n_rows: usize, chunk_size: usize) -> anyhow::Result<Vec<u32>> {
     let mut n_genes = vec![0; n_rows];
 
-    for (chunk, start, _) in x.iter::<DynCsrMatrix>(1000) {
+    for (chunk, start, _) in x.iter::<DynCsrMatrix>(chunk_size) {
         let csr: CsrMatrix<f64> = chunk.try_into()?;
         let chunk_n_genes = csr.row_offsets().windows(2).map(|w| (w[1] - w[0]) as u32);
 
@@ -60,10 +60,10 @@ fn compute_n_genes_csr_chunked<T: ArrayElemOp>(x: &T, n_rows: usize) -> anyhow::
     Ok(n_genes)
 }
 
-fn compute_n_genes_csc_chunked<T: ArrayElemOp>(x: &T, n_rows: usize) -> anyhow::Result<Vec<u32>> {
+fn compute_n_genes_csc_chunked<T: ArrayElemOp>(x: &T, n_rows: usize, chunk_size: usize) -> anyhow::Result<Vec<u32>> {
     let mut n_genes = vec![0; n_rows];
 
-    for (chunk, _, _) in x.iter::<DynCscMatrix>(1000) {
+    for (chunk, _, _) in x.iter::<DynCscMatrix>(chunk_size) {
         let csc: CscMatrix<f64> = chunk.try_into()?;
         for &row_idx in csc.row_indices() {
             n_genes[row_idx] += 1;
