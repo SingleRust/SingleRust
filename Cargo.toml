@@ -27,3 +27,4 @@ indicatif = "0.17.8"
 console = "0.15.8"
 anyhow = "1.0.86"
 rayon = {version = "1.9.0", optional = true}
+log = "0.4.22"
