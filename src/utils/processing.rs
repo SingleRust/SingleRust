@@ -10,7 +10,7 @@ use nalgebra_sparse::{csr::CsrMatrix, CscMatrix};
 
 // GENE SECTION
 
-pub fn compute_n_genes_chunked<B: Backend>(adata: &AnnData<B>) -> anyhow::Result<Vec<u32>> {
+pub fn compute_n_genes_chunked<B: Backend>(adata: &AnnData<B>, chunk_size: usize) -> anyhow::Result<Vec<u32>> {
     let x = adata.x();
     let shape = x
         .shape()
@@ -18,8 +18,8 @@ pub fn compute_n_genes_chunked<B: Backend>(adata: &AnnData<B>) -> anyhow::Result
     let n_rows = shape[0];
 
     match x.get::<ArrayData>()? {
-        Some(ArrayData::CscMatrix(_)) => compute_n_genes_csc_chunked(&x, n_rows),
-        Some(ArrayData::CsrMatrix(_)) => compute_n_genes_csr_chunked(&x, n_rows),
+        Some(ArrayData::CscMatrix(_)) => compute_n_genes_csc_chunked(&x, n_rows, chunk_size),
+        Some(ArrayData::CsrMatrix(_)) => compute_n_genes_csr_chunked(&x, n_rows, chunk_size),
         _ => Err(anyhow::anyhow!("Unsupported array type for X")),
     }
 }
