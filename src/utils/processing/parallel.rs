@@ -1,6 +1,7 @@
 use anndata::data::DynCscMatrix;
 use anndata::data::DynCsrMatrix;
 use anndata::AnnData;
+use anndata::AnnDataOp;
 use anndata::ArrayData;
 use anndata::ArrayElemOp;
 use anndata::Backend;
