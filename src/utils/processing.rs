@@ -131,7 +131,7 @@ fn compute_n_cells_csc_chunked<T: ArrayElemOp>(x: &T, n_cols: usize, chunk_size:
     Ok(n_cells)
 }
 
-pub fn compute_n_cells_chunked<B: Backend>(adata: &mut AnnData<B>, chunk_size: usize) -> anyhow::Result<Vec<u32>> {
+pub fn compute_n_cells_chunked<B: Backend>(adata: &AnnData<B>, chunk_size: usize) -> anyhow::Result<Vec<u32>> {
     let x = adata.x();
     let shape = x
         .shape()
@@ -144,7 +144,7 @@ pub fn compute_n_cells_chunked<B: Backend>(adata: &mut AnnData<B>, chunk_size: u
     }
 }
 
-pub fn compute_n_cells<B: Backend>(adata: &mut AnnData<B>) -> anyhow::Result<Vec<u32>> {
+pub fn compute_n_cells<B: Backend>(adata: &AnnData<B>) -> anyhow::Result<Vec<u32>> {
     let x = adata.x().get::<ArrayData>()?.expect("X matrix not found");
     match x {
         ArrayData::CscMatrix(csc) => compute_n_cells_csc(&csc),
