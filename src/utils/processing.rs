@@ -5,8 +5,8 @@ use anndata::{
 use anyhow::Ok;
 use nalgebra_sparse::{csr::CsrMatrix, CscMatrix};
 
-// #[cfg(feature = "parallel")]
-//pub mod parallel;
+#[cfg(feature = "parallel")]
+pub mod parallel;
 
 // GENE SECTION
 
