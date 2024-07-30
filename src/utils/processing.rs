@@ -121,7 +121,7 @@ fn compute_n_cells_csr(csr: &DynCsrMatrix) -> anyhow::Result<Vec<u32>> {
     Ok(n_cells)
 }
 
-fn compute_n_cells_csr_chunked<B: Backend>(x: ArrayElem<B>, n_cols: usize, chunk_size: usize) -> anyhow::Result<Vec<u32>> {
+fn compute_n_cells_csr_chunked<B: Backend>(x: &ArrayElem<B>, n_cols: usize, chunk_size: usize) -> anyhow::Result<Vec<u32>> {
     log::debug!("Computing n cells CSRMatrix chunked {}", chunk_size);
     let mut n_cells = vec![0; n_cols];
     log::debug!("Loading iter and processing chunks!");
@@ -154,7 +154,7 @@ fn compute_n_cells_csc(csc: &DynCscMatrix) -> anyhow::Result<Vec<u32>> {
     Ok(ret)
 }
 
-fn compute_n_cells_csc_chunked<B: Backend>(x: ArrayElem<B>, n_cols: usize, chunk_size: usize) -> anyhow::Result<Vec<u32>> {
+fn compute_n_cells_csc_chunked<B: Backend>(x: &ArrayElem<B>, n_cols: usize, chunk_size: usize) -> anyhow::Result<Vec<u32>> {
     log::debug!("Computing n_cells CSCMatrix chunked {}", chunk_size);
     let mut n_cells = vec![0; n_cols];
     log::debug!("Loading iter and processing chunks");
@@ -183,8 +183,8 @@ pub fn compute_n_cells_chunked<B: Backend>(adata: &AnnData<B>, chunk_size: usize
     let n_cols = shape[1];
     let dtype = x.inner().dtype();
     match dtype {
-        anndata::backend::DataType::CsrMatrix(_) => compute_n_cells_csr_chunked(x, n_cols, chunk_size),
-        anndata::backend::DataType::CscMatrix(_) => compute_n_cells_csc_chunked(x, n_cols, chunk_size),
+        anndata::backend::DataType::CsrMatrix(_) => compute_n_cells_csr_chunked(&x, n_cols, chunk_size),
+        anndata::backend::DataType::CscMatrix(_) => compute_n_cells_csc_chunked(&x, n_cols, chunk_size),
         _ => return Err(anyhow::anyhow!("Unsupported array type for X"))
     }
 }
