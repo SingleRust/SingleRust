@@ -184,7 +184,7 @@ pub fn compute_n_cells_chunked<B: Backend>(adata: &AnnData<B>, chunk_size: usize
     let dtype = x.inner().dtype();
     match dtype {
         anndata::backend::DataType::CsrMatrix(_) => compute_n_cells_csr_chunked(x, n_cols, chunk_size),
-        anndata::backend::DataType::CscMatrix(_) => compute_n_cells_csc_chunked!(x, n_cols, chunk_size),
+        anndata::backend::DataType::CscMatrix(_) => compute_n_cells_csc_chunked(x, n_cols, chunk_size),
         _ => return Err(anyhow::anyhow!("Unsupported array type for X"))
     }
 }
