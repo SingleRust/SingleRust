@@ -2,6 +2,7 @@ use anndata::{data::SelectInfoElem, AnnData, AnnDataOp, ArrayData, ArrayElemOp, 
 use anyhow::anyhow;
 use nalgebra_sparse::{CscMatrix, CsrMatrix};
 
+pub mod statistics;
 pub mod io;
 pub mod processing;
 

@@ -1,5 +1,3 @@
-use std::any::Any;
-
 use anndata::{
     data::{DynCscMatrix, DynCsrMatrix}, AnnData, AnnDataOp, ArrayData, ArrayElem, ArrayElemOp, Backend
 };
