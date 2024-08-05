@@ -12,5 +12,5 @@ pub enum NormalizationMethod {
 }
 
 pub fn remove_cells<B: Backend>(anndata: &mut AnnData<B>) -> anyhow::Result<()> {
-    anndata.
+    todo!();
 }
