@@ -1,5 +1,5 @@
 use anndata::{
-    AnnData, AnnDataOp, ArrayData, ArrayElemOp, Backend,
+    backend::DataType, AnnData, AnnDataOp, ArrayData, ArrayElemOp, Backend
 };
 mod csc;
 mod csr;
@@ -23,11 +23,11 @@ pub fn compute_num_genes_chunked<B: Backend>(
     let x = adata.x();
     let shape = x.shape().ok_or_else(|| anyhow::anyhow!("X matrix shape not found"))?;
     let n_rows = shape[0];
-    let arr_data = x.get::<ArrayData>()?;
-    match arr_data {
-        Some(ArrayData::CscMatrix(_)) => csc::chunked_num_genes(&x, n_rows, chunk_size),
-        Some(ArrayData::CsrMatrix(_)) => csr::chunked_num_genes(&x, n_rows, chunk_size),
-        _ => Err(anyhow::anyhow!("Unsupported array type for X")),
+    let array_type = x.inner().dtype();
+    match array_type {
+        DataType::CscMatrix(_) => csc::chunked_num_genes(&x, n_rows, chunk_size),
+        DataType::CsrMatrix(_) => csr::chunked_num_genes(&x, n_rows, chunk_size),
+        _ => Err(anyhow::anyhow!("Unsupported array type for X"))
     }
 }
 
@@ -49,10 +49,10 @@ pub fn compute_num_cells_chunked<B: Backend>(
     let x = adata.x();
     let shape = x.shape().ok_or_else(|| anyhow::anyhow!("X matrix shape not found"))?;
     let n_cols = shape[1];
-    let arr_data = x.get::<ArrayData>()?;
-    match arr_data {
-        Some(ArrayData::CscMatrix(_)) => csc::chunked_num_cells(&x, n_cols, chunk_size),
-        Some(ArrayData::CsrMatrix(_)) => csr::chunked_num_cells(&x, n_cols, chunk_size),
+    let array_type = x.inner().dtype();
+    match array_type {
+        DataType::CscMatrix(_) => csc::chunked_num_cells(&x, n_cols, chunk_size),
+        DataType::CsrMatrix(_) => csr::chunked_num_cells(&x, n_cols, chunk_size),
         _ => Err(anyhow::anyhow!("Unsupported array type for X")),
     }
 }
@@ -77,10 +77,10 @@ pub fn compute_num_combined_chunked<B: Backend>(
     let x = adata.x();
     let shape = x.shape().ok_or_else(|| anyhow::anyhow!("X matrix shape not found"))?;
     let (n_rows, n_cols) = (shape[0], shape[1]);
-    let arr_data = x.get::<ArrayData>()?;
-    match arr_data {
-        Some(ArrayData::CscMatrix(_)) => csc::chunked_num_combined(&x, n_rows, n_cols, chunk_size),
-        Some(ArrayData::CsrMatrix(_)) => csr::chunked_num_combined(&x, n_rows, n_cols, chunk_size),
+    let array_type = x.inner().dtype();
+    match array_type {
+        DataType::CscMatrix(_) => csc::chunked_num_combined(&x, n_rows, n_cols, chunk_size),
+        DataType::CsrMatrix(_) => csr::chunked_num_combined(&x, n_rows, n_cols, chunk_size),
         _ => Err(anyhow::anyhow!("Unsupported array type for X")),
     }
 }
@@ -105,10 +105,10 @@ pub fn compute_sum_gene_expr_chunked<B: Backend>(
     let x = adata.x();
     let shape = x.shape().ok_or_else(|| anyhow::anyhow!("X matrix shape not found"))?;
     let n_rows = shape[0];
-    let arr_data = x.get::<ArrayData>()?;
-    match arr_data {
-        Some(ArrayData::CscMatrix(_)) => csc::chunked_sum_gene_expr(&x, n_rows, chunk_size),
-        Some(ArrayData::CsrMatrix(_)) => csr::chunked_sum_gene_expr(&x, n_rows, chunk_size),
+    let array_type = x.inner().dtype();
+    match array_type {
+        DataType::CscMatrix(_) => csc::chunked_sum_gene_expr(&x, n_rows, chunk_size),
+        DataType::CsrMatrix(_) => csr::chunked_sum_gene_expr(&x, n_rows, chunk_size),
         _ => Err(anyhow::anyhow!("Unsupported array type for X")),
     }
 }
@@ -131,10 +131,10 @@ pub fn compute_sum_cell_expr_chunked<B: Backend>(
     let x = adata.x();
     let shape = x.shape().ok_or_else(|| anyhow::anyhow!("X matrix shape not found"))?;
     let n_cols = shape[1];
-    let arr_data = x.get::<ArrayData>()?;
-    match arr_data {
-        Some(ArrayData::CscMatrix(_)) => csc::chunked_sum_cell_expr(&x, n_cols, chunk_size),
-        Some(ArrayData::CsrMatrix(_)) => csr::chunked_sum_cell_expr(&x, n_cols, chunk_size),
+    let array_type = x.inner().dtype();
+    match array_type {
+        DataType::CscMatrix(_) => csc::chunked_sum_cell_expr(&x, n_cols, chunk_size),
+        DataType::CsrMatrix(_) => csr::chunked_sum_cell_expr(&x, n_cols, chunk_size),
         _ => Err(anyhow::anyhow!("Unsupported array type for X")),
     }
 }
@@ -159,10 +159,10 @@ pub fn compute_sum_combined_chunked<B: Backend>(
     let x = adata.x();
     let shape = x.shape().ok_or_else(|| anyhow::anyhow!("X matrix shape not found"))?;
     let (n_rows, n_cols) = (shape[0], shape[1]);
-    let arr_data = x.get::<ArrayData>()?;
-    match arr_data {
-        Some(ArrayData::CscMatrix(_)) => csc::chunked_sum_combined(&x, n_rows, n_cols, chunk_size),
-        Some(ArrayData::CsrMatrix(_)) => csr::chunked_sum_combined(&x, n_rows, n_cols, chunk_size),
+    let array_type = x.inner().dtype();
+    match array_type {
+        DataType::CscMatrix(_) => csc::chunked_sum_combined(&x, n_rows, n_cols, chunk_size),
+        DataType::CsrMatrix(_) => csr::chunked_sum_combined(&x, n_rows, n_cols, chunk_size),
         _ => Err(anyhow::anyhow!("Unsupported array type for X")),
     }
 }
