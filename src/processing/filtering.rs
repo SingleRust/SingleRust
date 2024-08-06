@@ -3,7 +3,6 @@ use std::path::Path;
 use anndata::{AnnData, AnnDataOp, Backend};
 use anndata_hdf5::H5;
 use ndarray::Array1;
-use rayon::iter::Filter;
 
 use crate::{io::FileScope, utils::ComputationMode};
 

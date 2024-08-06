@@ -53,5 +53,5 @@ pub fn filter_anndata<B: Backend, P: AsRef<Path>>(
     // Apply the selection to the AnnData object
     adata.write_select::<H5, _, _>(selection.as_slice(), file_path.as_ref())?;
     
-    return crate::io::read_h5ad(file_path, open_scope)  
+    crate::io::read_h5ad(file_path, open_scope)  
 }

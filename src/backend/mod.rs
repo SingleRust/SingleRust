@@ -86,7 +86,7 @@ impl ArrayElemOp for InnerElemInMemory {
 impl Clone for InnerElemInMemory {
     fn clone(&self) -> Self {
         Self {
-            dtype: self.dtype.clone(),
+            dtype: self.dtype,
             container: self.container.clone(),
         }
     }
@@ -113,8 +113,30 @@ impl AxisArraysOp for &AnnotationMatrix {
 
     fn add<D: WriteArrayData + HasShape + Into<ArrayData>>(&self, key: &str, data: D) -> anyhow::Result<()> {
         let dtype = data.data_type();
+        let shape = data.shape();
+
+        // Perform dimensionality checks based on the axis type
+        match self.axis {
+            Axis::Row => {
+                if shape[0] != self.dim1 {
+                    return Err(anyhow!("Data shape {:?} does not match expected row dimension {}", shape, self.dim1));
+                }
+            },
+            Axis::RowColumn => {
+                if shape[0] != self.dim1 || shape[1] != self.dim2.unwrap() {
+                    return Err(anyhow!("Data shape {:?} does not match expected dimensions ({}, {})", 
+                                       shape, self.dim1, self.dim2.unwrap()));
+                }
+            },
+            Axis::Pairwise => {
+                if shape[0] != self.dim1 || shape[1] != self.dim1 {
+                    return Err(anyhow!("Data shape {:?} does not match expected pairwise dimensions ({}, {})", 
+                                       shape, self.dim1, self.dim1));
+                }
+            },
+        }
+
         let container = data.into();
-        
         let elem = InnerElemInMemory { dtype, container };
         self.data.write().unwrap().insert(key.to_string(), elem);
         Ok(())
@@ -126,6 +148,29 @@ impl AxisArraysOp for &AnnotationMatrix {
         D: ArrayChunk + Into<ArrayData>
     {
         let merged = ArrayData::vstack(data.map(Into::into))?;
+        
+        // Perform dimensionality check on the merged data
+        let shape = merged.shape();
+        match self.axis {
+            Axis::Row => {
+                if shape[0] != self.dim1 {
+                    return Err(anyhow!("Merged data shape {:?} does not match expected row dimension {}", shape, self.dim1));
+                }
+            },
+            Axis::RowColumn => {
+                if shape[1] != self.dim2.unwrap() {
+                    return Err(anyhow!("Merged data shape {:?} does not match expected column dimension {}", 
+                                       shape, self.dim2.unwrap()));
+                }
+            },
+            Axis::Pairwise => {
+                if shape[1] != self.dim1 {
+                    return Err(anyhow!("Merged data shape {:?} does not match expected pairwise dimension {}", 
+                                       shape, self.dim1));
+                }
+            },
+        }
+
         self.add(key, merged)
     }
 
