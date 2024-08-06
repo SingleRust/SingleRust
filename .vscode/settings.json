@@ -3,5 +3,6 @@
     "rust-analyzer.numThreads": 32,
     "rust-analyzer.cargo.features": [
         "parallel"
-    ]
+    ],
+    "rust-analyzer.check.command": "clippy"
 }

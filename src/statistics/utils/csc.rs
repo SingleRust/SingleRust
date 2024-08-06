@@ -250,3 +250,5 @@ pub fn compute_sum_combined(
     log::debug!("Sum_combined computed");
     Ok((cell_sums, gene_sums))
 }
+
+// ---------------------------- Num and Sum of expression values per gene ----------------------------

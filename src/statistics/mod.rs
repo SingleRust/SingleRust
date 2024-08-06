@@ -1,8 +1,8 @@
 use anndata::{AnnData, Backend};
 
-use super::ComputationMode;
-mod utils;
+use crate::utils::ComputationMode;
 
+mod utils;
 
 
 pub fn compute_n_genes<B: Backend>(
@@ -64,3 +64,13 @@ pub fn compute_sum_combined<B: Backend>(
         ComputationMode::Whole => utils::compute_sum_combined(anndata),
     }
 }
+
+// pub fn compute_num_sum_cells<B: Backend>(
+//     anndata: &AnnData<B>,
+//     computation: ComputationMode
+// ) -> anyhow::Result<Vec<f64>> {
+//     match computation {
+//         ComputationMode::Chunked(size) => todo!(),
+//         ComputationMode::Whole => todo!(),
+//     }
+// }
