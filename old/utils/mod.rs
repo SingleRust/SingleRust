@@ -9,7 +9,7 @@ pub enum ComputationMode {
 impl Clone for ComputationMode {
     fn clone(&self) -> Self {
         match self {
-            Self::Chunked(arg0) => Self::Chunked(arg0.clone()),
+            Self::Chunked(arg0) => Self::Chunked(*arg0),
             Self::Whole => Self::Whole,
         }
     }
