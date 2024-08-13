@@ -1,6 +1,6 @@
 pub(crate) mod processing;
-pub(crate) mod utils;
 pub(crate) mod statistics;
+pub(crate) mod utils;
 
 pub enum ComputationMode {
     Chunked(usize),
@@ -18,7 +18,7 @@ impl Clone for ComputationMode {
 
 pub enum Direction {
     Row = 0,
-    Column = 1
+    Column = 1,
 }
 
 impl Clone for Direction {
@@ -39,11 +39,52 @@ impl Direction {
     }
 }
 
+pub enum FlexValue {
+    Absolute(u32),
+    Relative(f64),
+    None,
+}
+
+impl Clone for FlexValue {
+    fn clone(&self) -> Self {
+        match self {
+            Self::Absolute(arg0) => Self::Absolute(*arg0),
+            Self::Relative(arg0) => Self::Relative(*arg0),
+            Self::None => Self::None,
+        }
+    }
+}
+
+impl FlexValue {
+    pub fn is_absolute(&self) -> bool {
+        match self {
+            Self::Absolute(_) => true,
+            Self::Relative(_) => false,
+            Self::None => false,
+        }
+    }
+
+    pub fn is_relative(&self) -> bool {
+        match self {
+            Self::Absolute(_) => false,
+            Self::Relative(_) => true,
+            Self::None => false,
+        }
+    }
+
+    pub fn is_none(&self) -> bool {
+        match self {
+            Self::Absolute(_) => false,
+            Self::Relative(_) => false,
+            Self::None => true,
+        }
+    }
+}
+
 use num_traits::{NumCast, One, Zero};
 
 trait NumericOps: Zero + One + NumCast + Copy + std::ops::AddAssign {}
 impl<T: Zero + One + NumCast + Copy + std::ops::AddAssign> NumericOps for T {}
-
 
 #[macro_export]
 macro_rules! match_dyn_csr_matrix {
