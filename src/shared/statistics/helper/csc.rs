@@ -1,39 +1,55 @@
+use std::iter::Sum;
+
 use anndata::data::DynCscMatrix;
 use nalgebra_sparse::CscMatrix;
 
-use crate::shared::Direction;
+use crate::{
+    match_dyn_csc_matrix,
+    shared::{Direction, NumericOps},
+};
 
-/// computes the number of non.zero entries in the definted direction (row/column wise)
-pub(crate) fn number_whole(csc: DynCscMatrix, direction: Direction) -> anyhow::Result<Vec<u32>> {
-    let converted_csc: CscMatrix<f64> = csc.try_into()?;
+pub(crate) fn number_whole(csc: &DynCscMatrix, direction: Direction) -> anyhow::Result<Vec<u32>> {
+    match_dyn_csc_matrix!(csc, number_whole_helper, direction)
+}
 
+fn number_whole_helper<T: NumericOps>(
+    csc: &CscMatrix<T>,
+    direction: Direction,
+) -> anyhow::Result<Vec<u32>> {
     match direction {
         Direction::Row => {
-            let mut result = vec![0; converted_csc.nrows()];
-            for &row_index in converted_csc.row_indices() {
+            let mut result = vec![0; csc.nrows()];
+            for &row_index in csc.row_indices() {
                 result[row_index] += 1;
             }
             Ok(result)
         }
-        Direction::Column => Ok(converted_csc
-            .col_offsets()
-            .windows(2)
-            .map(|window| (window[1] - window[0]) as u32)
-            .collect()),
+        Direction::Column => {
+            Ok(csc
+                .col_offsets()
+                .windows(2)
+                .map(|window| (window[1] - window[0]) as u32)
+                .collect())
+        }
     }
 }
 
 pub(crate) fn number_chunk(
-    csc: DynCscMatrix,
+    csc: &DynCscMatrix,
     direction: &Direction,
     reference: &mut Vec<u32>,
 ) -> anyhow::Result<()> {
-    let converted_csc: CscMatrix<f64> = csc.try_into()?;
+    match_dyn_csc_matrix!(csc, number_chunk_helper, direction, reference)
+}
 
+fn number_chunk_helper<T: NumericOps>(
+    csc: &CscMatrix<T>,
+    direction: &Direction,
+    reference: &mut Vec<u32>,
+) -> anyhow::Result<()> {
     match direction {
         Direction::Column => {
-            // For column-wise computation
-            for (i, window) in converted_csc.col_offsets().windows(2).enumerate() {
+            for (i, window) in csc.col_offsets().windows(2).enumerate() {
                 let count = (window[1] - window[0]) as u32;
                 if i < reference.len() {
                     reference[i] += count;
@@ -41,67 +57,72 @@ pub(crate) fn number_chunk(
             }
         }
         Direction::Row => {
-            // For row-wise computation
-            for &row_index in converted_csc.row_indices() {
+            for &row_index in csc.row_indices() {
                 if row_index < reference.len() {
                     reference[row_index] += 1;
                 }
             }
         }
     }
-
     Ok(())
 }
 
-/// Computes the sum of entries in the defined direction (row/column wise)
-pub(crate) fn sum_whole(csc: DynCscMatrix, direction: Direction) -> anyhow::Result<Vec<f64>> {
-    let converted_csc: CscMatrix<f64> = csc.try_into()?;
+pub(crate) fn sum_whole(csc: &DynCscMatrix, direction: Direction) -> anyhow::Result<Vec<f64>> {
+    match_dyn_csc_matrix!(csc, sum_whole_helper, direction)
+}
+
+fn sum_whole_helper<T>(csc: &CscMatrix<T>, direction: Direction) -> anyhow::Result<Vec<f64>>
+where
+    T: NumericOps,
+    f64: From<T>,
+{
     match direction {
         Direction::Row => {
-            let mut result = vec![0.0; converted_csc.nrows()];
-            for (&row_index, &value) in converted_csc
-                .row_indices()
-                .iter()
-                .zip(converted_csc.values().iter())
-            {
-                result[row_index] += value;
+            let mut result = vec![0.0; csc.nrows()];
+            for (&row_index, &value) in csc.row_indices().iter().zip(csc.values().iter()) {
+                result[row_index] += f64::from(value);
             }
             Ok(result)
         }
         Direction::Column => {
-            let mut result = vec![0.0; converted_csc.ncols()];
-            for (col, col_vec) in converted_csc.col_iter().enumerate() {
-                result[col] = col_vec.values().iter().sum();
+            let mut result = vec![0.0; csc.ncols()];
+            for (col, col_vec) in csc.col_iter().enumerate() {
+                result[col] = col_vec.values().iter().map(|&v| f64::from(v)).sum();
             }
             Ok(result)
         }
     }
 }
 
-// TODO !!! refactor this !!!!!
-
 pub(crate) fn sum_chunk(
-    csc: DynCscMatrix,
+    csc: &DynCscMatrix,
     direction: &Direction,
     reference: &mut Vec<f64>,
 ) -> anyhow::Result<()> {
-    let converted_csc: CscMatrix<f64> = csc.try_into()?;
+    match_dyn_csc_matrix!(csc, sum_chunk_helper, direction, reference)
+}
+
+fn sum_chunk_helper<T>(
+    csc: &CscMatrix<T>,
+    direction: &Direction,
+    reference: &mut Vec<f64>,
+) -> anyhow::Result<()>
+where
+    T: NumericOps + Sum,
+    f64: From<T>,
+{
     match direction {
         Direction::Column => {
-            // For column-wise computation
-            for (col, col_vec) in converted_csc.col_iter().enumerate() {
-                reference[col] = col_vec.values().iter().sum();
+            for (col, col_vec) in csc.col_iter().enumerate() {
+                if col < reference.len() {
+                    reference[col] += col_vec.values().iter().map(|&v| f64::from(v)).sum::<f64>();
+                }
             }
         }
         Direction::Row => {
-            // For row-wise computation
-            for (&row_index, &value) in converted_csc
-                .row_indices()
-                .iter()
-                .zip(converted_csc.values().iter())
-            {
+            for (&row_index, &value) in csc.row_indices().iter().zip(csc.values().iter()) {
                 if row_index < reference.len() {
-                    reference[row_index] += value;
+                    reference[row_index] += f64::from(value);
                 }
             }
         }

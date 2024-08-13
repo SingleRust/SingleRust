@@ -18,7 +18,7 @@ pub fn compute_number<B: Backend>(
         }
         ComputationMode::Whole => {
             let array = x.get::<ArrayData>()?.unwrap();
-            crate::shared::statistics::number::whole(array, direction)
+            crate::shared::statistics::number::whole(&array, direction)
         }
     }
 }
@@ -39,7 +39,7 @@ pub fn compute_sum<B: Backend>(
         }
         ComputationMode::Whole => {
             let array = x.get::<ArrayData>()?.unwrap();
-            crate::shared::statistics::sum::whole(array, direction)
+            crate::shared::statistics::sum::whole(&array, direction)
         }
     }
 }

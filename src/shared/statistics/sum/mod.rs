@@ -3,13 +3,13 @@ use anndata::{ArrayData, ArrayElemOp};
 use crate::shared::Direction;
 
 /// computes the non_zero values in wither column or row direction for a CSC
-pub fn whole(arrayd: ArrayData, direction: Direction) -> anyhow::Result<Vec<f64>> {
+pub fn whole(arrayd: &ArrayData, direction: Direction) -> anyhow::Result<Vec<f64>> {
     match arrayd {
-        ArrayData::Array(array) => todo!("Not implemented yet!"),
+        ArrayData::Array(_array) => todo!("Not implemented yet!"),
         ArrayData::CsrMatrix(csr) => super::helper::csr::sum_whole(csr, direction),
-        ArrayData::CsrNonCanonical(csc) => todo!("Not implemented yet!"),
+        ArrayData::CsrNonCanonical(_csc) => todo!("Not implemented yet!"),
         ArrayData::CscMatrix(csc) => super::helper::csc::sum_whole(csc, direction),
-        ArrayData::DataFrame(df) => todo!("Not implemented yet!"),
+        ArrayData::DataFrame(_df) => todo!("Not implemented yet!"),
     }
 }
 
@@ -23,10 +23,10 @@ pub fn chunked<T: ArrayElemOp>(
     for (chunk, _, _) in x.iter::<ArrayData>(chunk_size) {
         match chunk {
             ArrayData::CscMatrix(csc) => {
-                super::helper::csc::sum_chunk(csc, &direction, &mut return_vec)?
+                super::helper::csc::sum_chunk(&csc, &direction, &mut return_vec)?
             }
             ArrayData::CsrMatrix(csr) => {
-                super::helper::csr::sum_chunk(csr, &direction, &mut return_vec)?
+                super::helper::csr::sum_chunk(&csr, &direction, &mut return_vec)?
             }
             _ => {
                 return Err(anyhow::anyhow!(
