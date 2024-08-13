@@ -141,3 +141,88 @@ where
     }
     Ok(())
 }
+
+pub(crate) fn variance_whole(csr: &DynCsrMatrix, direction: Direction) -> anyhow::Result<Vec<f64>> {
+    match_dyn_csr_matrix!(csr, variance_whole_helper, direction)
+}
+
+fn variance_whole_helper<T>(csr: &CsrMatrix<T>, direction: Direction) -> anyhow::Result<Vec<f64>>
+where
+    T: NumericOps,
+    f64: From<T>,
+{
+    let sum = sum_whole_helper(csr, direction.clone())?;
+    let count = number_whole_helper(csr, direction.clone())?;
+    
+    match direction {
+        Direction::Row => {
+            let mut result = vec![0.0; csr.nrows()];
+            for (row, row_vec) in csr.row_iter().enumerate() {
+                let mean = sum[row] / count[row] as f64;
+                let variance = row_vec.values().iter()
+                    .map(|&v| {
+                        let diff = f64::from(v) - mean;
+                        diff * diff
+                    })
+                    .sum::<f64>() / count[row] as f64;
+                result[row] = variance;
+            }
+            Ok(result)
+        }
+        Direction::Column => {
+            let mut result = vec![0.0; csr.ncols()];
+            let mut squared_sum = vec![0.0; csr.ncols()];
+            for (&col_index, &value) in csr.col_indices().iter().zip(csr.values().iter()) {
+                let val = f64::from(value);
+                squared_sum[col_index] += val * val;
+            }
+            for col in 0..csr.ncols() {
+                if count[col] > 0 {
+                    let mean = sum[col] / count[col] as f64;
+                    result[col] = squared_sum[col] / count[col] as f64 - mean * mean;
+                }
+            }
+            Ok(result)
+        }
+    }
+}
+
+pub(crate) fn min_max_whole(csr: &DynCsrMatrix, direction: Direction) -> anyhow::Result<(Vec<f64>, Vec<f64>)> {
+    match_dyn_csr_matrix!(csr, min_max_whole_helper, direction)
+}
+
+fn min_max_whole_helper<T>(csr: &CsrMatrix<T>, direction: Direction) -> anyhow::Result<(Vec<f64>, Vec<f64>)>
+where
+    T: NumericOps,
+    f64: From<T>,
+{
+    match direction {
+        Direction::Row => {
+            let mut min_values = vec![f64::INFINITY; csr.nrows()];
+            let mut max_values = vec![f64::NEG_INFINITY; csr.nrows()];
+            for (row, row_vec) in csr.row_iter().enumerate() {
+                for &value in row_vec.values() {
+                    let val = f64::from(value);
+                    min_values[row] = min_values[row].min(val);
+                    max_values[row] = max_values[row].max(val);
+                }
+            }
+            Ok((min_values, max_values))
+        }
+        Direction::Column => {
+            let mut min_values = vec![f64::INFINITY; csr.ncols()];
+            let mut max_values = vec![f64::NEG_INFINITY; csr.ncols()];
+            for (&col_index, &value) in csr.col_indices().iter().zip(csr.values().iter()) {
+                let val = f64::from(value);
+                min_values[col_index] = min_values[col_index].min(val);
+                max_values[col_index] = max_values[col_index].max(val);
+            }
+            Ok((min_values, max_values))
+        }
+    }
+}
+
+pub(crate) fn std_dev_whole(csr: &DynCsrMatrix, direction: Direction) -> anyhow::Result<Vec<f64>> {
+    let variances = variance_whole(csr, direction)?;
+    Ok(variances.into_iter().map(|v| v.sqrt()).collect())
+}

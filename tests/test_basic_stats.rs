@@ -37,7 +37,7 @@ fn test_calc_row_number_small() {
     let data = load_small_memory().unwrap();
 
     let start = Instant::now();
-    let res = compute_number(data, Direction::Row).unwrap();
+    let res = compute_number(&data, Direction::Row).unwrap();
     
     let duration = start.elapsed();
     
@@ -46,11 +46,11 @@ fn test_calc_row_number_small() {
 }
 
 #[test]
-fn test_calc_obs_number_small() {
+fn test_calc_col_number_small() {
     let data = load_small_memory().unwrap();
 
     let start = Instant::now();
-    let res = compute_number(data, Direction::Column).unwrap();
+    let res = compute_number(&data, Direction::Column).unwrap();
     
     let duration = start.elapsed();
     
@@ -64,7 +64,7 @@ fn test_calc_row_number_big() {
     let data = load_big_memory().unwrap();
     println!("loaded file!");
     let start = Instant::now();
-    let res = compute_number(data, Direction::Row).unwrap();
+    let res = compute_number(&data, Direction::Row).unwrap();
     
     let duration = start.elapsed();
     
@@ -77,7 +77,7 @@ fn test_calc_obs_number_big() {
     let data = load_big_memory().unwrap();
 
     let start = Instant::now();
-    let res = compute_number(data, Direction::Column).unwrap();
+    let res = compute_number(&data, Direction::Column).unwrap();
     
     let duration = start.elapsed();
     
