@@ -43,3 +43,8 @@ For early inquiries, suggestions, or expressions of interest in contributing, pl
 - The Rust Community: For providing an inspiring example of what open-source collaboration can achieve.
 
 Join us in this exciting journey to merge the worlds of Rust and single-cell analysis. Your contribution can help shape the future of biological data analysis! 🌍🔬
+
+
+## IMPORTANT 🚨
+
+This library is still in its infancy and very very very much work in progress and at some points highly unoptimized. If you want to contribute...go for it!
