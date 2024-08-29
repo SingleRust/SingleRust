@@ -1,124 +1,173 @@
 use std::ops::DerefMut;
-
 use anndata::ArrayData;
 use anndata_memory::IMAnnData;
 use nalgebra_sparse::{CscMatrix, CsrMatrix};
-
+use anndata::data::{DynCscMatrix, DynCsrMatrix};
 
 pub(crate) fn scale_row(adata: &mut IMAnnData, target_value: f64) -> anyhow::Result<()> {
-
     let sum_row = crate::memory::statistics::compute_sum(adata, crate::Direction::Row)?;
-    let non_zero_row = crate::memory::statistics::compute_number(adata, crate::Direction::Row)?;
-    let scale = sum_row.iter().zip(non_zero_row.iter()).map(|(sum, non_zero)| {
-        if *non_zero == 0 {
+    let scale: Vec<f64> = sum_row.iter().map(|sum| {
+        if *sum == 0.0 {
             0.0
         } else {
-            target_value / (*sum / *non_zero as f64)
+            target_value / *sum
         }
-    }).collect::<Vec<f64>>();
+    }).collect();
 
     let x = adata.x();
-
     match x.get_type()? {
-        anndata::backend::DataType::Array(_) => todo!(),
-        anndata::backend::DataType::Categorical => todo!(),
-        anndata::backend::DataType::CsrMatrix(_) => scale_row_csc(adata, scale),
-        anndata::backend::DataType::CscMatrix(_) => scale_row_csr(adata, scale),
-        anndata::backend::DataType::DataFrame => todo!(),
-        anndata::backend::DataType::Scalar(_) => todo!(),
-        anndata::backend::DataType::Mapping => todo!(),
+        anndata::backend::DataType::CsrMatrix(_) => scale_row_csr(adata, &scale),
+        anndata::backend::DataType::CscMatrix(_) => scale_row_csc(adata, &scale),
+        _ => Err(anyhow::anyhow!("Unsupported data type for scaling")),
     }
-
 }
 
-fn scale_row_csc(adata: &mut IMAnnData, scale: Vec<f64>) -> anyhow::Result<()> {
+fn scale_row_csc(adata: &mut IMAnnData, scale: &[f64]) -> anyhow::Result<()> {
     let x_data = adata.x();
-    let read_guard = x_data.0.read_inner();
-    let arr_data_clone = read_guard.clone();
-    let mut float_data: CscMatrix<f64> = arr_data_clone.try_into().expect("Failed to convert to CscMatrix<f64>");
+    let mut write_guard = x_data.0.write_inner();
+    let arr_data = write_guard.deref_mut();
 
-    let (col_offsets, row_indices, values) = float_data.csc_data_mut();
-    for col in 0..col_offsets.len() - 1 {
-        for j in col_offsets[col]..col_offsets[col + 1] {
-            let row = row_indices[j];
-            values[j] *= scale[row];
+    if let ArrayData::CscMatrix(ref mut csc_matrix) = arr_data {
+        match csc_matrix {
+            DynCscMatrix::F64(matrix) => {
+                let (col_offsets, row_indices, values) = matrix.csc_data_mut();
+                for col in 0..col_offsets.len() - 1 {
+                    for j in col_offsets[col]..col_offsets[col + 1] {
+                        let row = row_indices[j];
+                        values[j] *= scale[row];
+                    }
+                }
+            },
+            _ => {
+                let mut float_matrix: CscMatrix<f64> = csc_matrix.clone().try_into()?;
+                let (col_offsets, row_indices, values) = float_matrix.csc_data_mut();
+                for col in 0..col_offsets.len() - 1 {
+                    for j in col_offsets[col]..col_offsets[col + 1] {
+                        let row = row_indices[j];
+                        values[j] *= scale[row];
+                    }
+                }
+                *csc_matrix = DynCscMatrix::F64(float_matrix);
+            }
         }
+        Ok(())
+    } else {
+        Err(anyhow::anyhow!("X is not a CSC matrix"))
     }
-    drop(read_guard);
-    let _ = x_data.0.insert(ArrayData::from(float_data));
-    Ok(())
 }
 
-fn scale_row_csr(adata: &mut IMAnnData, scale: Vec<f64>) -> anyhow::Result<()> {
+fn scale_row_csr(adata: &mut IMAnnData, scale: &[f64]) -> anyhow::Result<()> {
     let x_data = adata.x();
-    let read_guard = x_data.0.read_inner();
-    let arr_data_clone = read_guard.clone();
-    let mut float_data: CsrMatrix<f64> = arr_data_clone.try_into().expect("Failed to convert to CsrMatrix<f64>");
+    let mut write_guard = x_data.0.write_inner();
+    let arr_data = write_guard.deref_mut();
 
-    for (row_index, mut row) in float_data.row_iter_mut().enumerate() {
-        let row_scale = scale[row_index];
-        for val in row.values_mut() {
-            *val *= row_scale;
+    if let ArrayData::CsrMatrix(ref mut csr_matrix) = arr_data {
+        match csr_matrix {
+            DynCsrMatrix::F64(matrix) => {
+                for (row_index, mut row) in matrix.row_iter_mut().enumerate() {
+                    let row_scale = scale[row_index];
+                    for val in row.values_mut() {
+                        *val *= row_scale;
+                    }
+                }
+            },
+            _ => {
+                let mut float_matrix: CsrMatrix<f64> = csr_matrix.clone().try_into()?;
+                for (row_index, mut row) in float_matrix.row_iter_mut().enumerate() {
+                    let row_scale = scale[row_index];
+                    for val in row.values_mut() {
+                        *val *= row_scale;
+                    }
+                }
+                *csr_matrix = DynCsrMatrix::F64(float_matrix);
+            }
         }
+        Ok(())
+    } else {
+        Err(anyhow::anyhow!("X is not a CSR matrix"))
     }
-
-    drop(read_guard);
-    let _ = x_data.0.insert(ArrayData::from(float_data));
-    Ok(())
 }
 
 pub(crate) fn scale_col(adata: &mut IMAnnData, target_value: f64) -> anyhow::Result<()> {
     let sum_col = crate::memory::statistics::compute_sum(adata, crate::Direction::Column)?;
-    let non_zero_col = crate::memory::statistics::compute_number(adata, crate::Direction::Column)?;
-    let scale = sum_col.iter().zip(non_zero_col.iter()).map(|(sum, non_zero)| {
-        if *non_zero == 0 {
+    let scale: Vec<f64> = sum_col.iter().map(|sum| {
+        if *sum == 0.0 {
             0.0
         } else {
-            target_value / (*sum / *non_zero as f64)
+            target_value / *sum
         }
-    }).collect::<Vec<f64>>();
+    }).collect();
 
     let x = adata.x();
     match x.get_type()? {
-        anndata::backend::DataType::Array(_) => todo!(),
-        anndata::backend::DataType::Categorical => todo!(),
-        anndata::backend::DataType::CsrMatrix(_) => scale_col_csr(adata, scale),
-        anndata::backend::DataType::CscMatrix(_) => scale_col_csc(adata, scale),
-        anndata::backend::DataType::DataFrame => todo!(),
-        anndata::backend::DataType::Scalar(_) => todo!(),
-        anndata::backend::DataType::Mapping => todo!(),
+        anndata::backend::DataType::CsrMatrix(_) => scale_col_csr(adata, &scale),
+        anndata::backend::DataType::CscMatrix(_) => scale_col_csc(adata, &scale),
+        _ => Err(anyhow::anyhow!("Unsupported data type for scaling")),
     }
 }
 
-fn scale_col_csc(adata: &mut IMAnnData, scale: Vec<f64>) -> anyhow::Result<()> {
+fn scale_col_csc(adata: &mut IMAnnData, scale: &[f64]) -> anyhow::Result<()> {
     let x_data = adata.x();
-    let read_guard = x_data.0.read_inner();
-    let arr_data_clone = read_guard.clone();
-    let mut float_data: CscMatrix<f64> = arr_data_clone.try_into().expect("Failed to convert to CscMatrix<f64>");
-    let (col_offsets, _row_indices, values) = float_data.csc_data_mut();
-    for col in 0..col_offsets.len() - 1 {
-        for j in col_offsets[col]..col_offsets[col + 1] {
-            values[j] *= scale[col];
+    let mut write_guard = x_data.0.write_inner();
+    let arr_data = write_guard.deref_mut();
+
+    if let ArrayData::CscMatrix(ref mut csc_matrix) = arr_data {
+        match csc_matrix {
+            DynCscMatrix::F64(matrix) => {
+                let (col_offsets, _row_indices, values) = matrix.csc_data_mut();
+                for col in 0..col_offsets.len() - 1 {
+                    for j in col_offsets[col]..col_offsets[col + 1] {
+                        values[j] *= scale[col];
+                    }
+                }
+            },
+            _ => {
+                let mut float_matrix: CscMatrix<f64> = csc_matrix.clone().try_into()?;
+                let (col_offsets, _row_indices, values) = float_matrix.csc_data_mut();
+                for col in 0..col_offsets.len() - 1 {
+                    for j in col_offsets[col]..col_offsets[col + 1] {
+                        values[j] *= scale[col];
+                    }
+                }
+                *csc_matrix = DynCscMatrix::F64(float_matrix);
+            }
         }
+        Ok(())
+    } else {
+        Err(anyhow::anyhow!("X is not a CSC matrix"))
     }
-    drop(read_guard);
-    let _ = x_data.0.insert(ArrayData::from(float_data));
-    Ok(())
 }
 
-fn scale_col_csr(adata: &mut IMAnnData, scale: Vec<f64>) -> anyhow::Result<()> {
+fn scale_col_csr(adata: &mut IMAnnData, scale: &[f64]) -> anyhow::Result<()> {
     let x_data = adata.x();
-    let read_guard = x_data.0.read_inner();
-    let arr_data_clone = read_guard.clone();
-    let mut float_data: CsrMatrix<f64> = arr_data_clone.try_into().expect("Failed to convert to CsrMatrix<f64>");
-    let (row_offsets, col_indices, values) = float_data.csr_data_mut();
-    for row in 0..row_offsets.len() - 1 {
-        for j in row_offsets[row]..row_offsets[row + 1] {
-            let col = col_indices[j];
-            values[j] *= scale[col];
+    let mut write_guard = x_data.0.write_inner();
+    let arr_data = write_guard.deref_mut();
+
+    if let ArrayData::CsrMatrix(ref mut csr_matrix) = arr_data {
+        match csr_matrix {
+            DynCsrMatrix::F64(matrix) => {
+                let (row_offsets, col_indices, values) = matrix.csr_data_mut();
+                for row in 0..row_offsets.len() - 1 {
+                    for j in row_offsets[row]..row_offsets[row + 1] {
+                        let col = col_indices[j];
+                        values[j] *= scale[col];
+                    }
+                }
+            },
+            _ => {
+                let mut float_matrix: CsrMatrix<f64> = csr_matrix.clone().try_into()?;
+                let (row_offsets, col_indices, values) = float_matrix.csr_data_mut();
+                for row in 0..row_offsets.len() - 1 {
+                    for j in row_offsets[row]..row_offsets[row + 1] {
+                        let col = col_indices[j];
+                        values[j] *= scale[col];
+                    }
+                }
+                *csr_matrix = DynCsrMatrix::F64(float_matrix);
+            }
         }
+        Ok(())
+    } else {
+        Err(anyhow::anyhow!("X is not a CSR matrix"))
     }
-    drop(read_guard);
-    let _ = x_data.0.insert(ArrayData::from(float_data));
-    Ok(())
 }
