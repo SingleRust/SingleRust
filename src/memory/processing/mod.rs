@@ -7,9 +7,11 @@ use noisy_float::types::n64;
 
 use crate::{shared::FlexValue, Direction};
 use ndarray_stats::QuantileExt;
-
+use log::{log, Level};
 mod scale;
 mod transform;
+
+pub mod dim_red;
 
 fn calculate_cell_stats(
     adata: &IMAnnData,
@@ -41,34 +43,46 @@ fn create_filter_mask(
             .map(|i| match (lower_lim, upper_lim) {
                 (FlexValue::Absolute(lower), FlexValue::Absolute(upper)) => {
                     let n_genes = n_genes_per_cell.as_ref().unwrap()[i];
-                    //println!("n_genes: {}", n_genes);
                     n_genes >= *lower && n_genes <= *upper
                 }
                 (FlexValue::Relative(_), FlexValue::Relative(_)) => {
                     let sum_genes = sum_genes_per_cell[i];
-                    //println!("sum_genes: {}", sum_genes);
                     sum_genes >= lower_percentile && sum_genes <= upper_percentile
                 }
                 (FlexValue::Absolute(lower), FlexValue::Relative(_)) => {
                     let n_genes = n_genes_per_cell.as_ref().unwrap()[i];
                     let sum_genes = sum_genes_per_cell[i];
-                    //println!("n_genes: {}", n_genes);
-                    //println!("sum_genes: {}", sum_genes);
                     n_genes >= *lower && sum_genes <= upper_percentile
                 }
                 (FlexValue::Relative(_), FlexValue::Absolute(upper)) => {
                     let n_genes = n_genes_per_cell.as_ref().unwrap()[i];
                     let sum_genes = sum_genes_per_cell[i];
-                    //println!("n_genes: {}", n_genes);
-                    //println!("sum_genes: {}", sum_genes);
                     sum_genes >= lower_percentile && n_genes <= *upper
                 }
-                _ => true,
+                (FlexValue::Absolute(lower), FlexValue::None) => {
+                    let n_genes = n_genes_per_cell.as_ref().unwrap()[i];
+                    log!(Level::Debug, "Number of genes {}, limit: {}", n_genes, *lower);
+                    n_genes >= *lower
+                }
+                (FlexValue::None, FlexValue::Absolute(upper)) => {
+                    let n_genes = n_genes_per_cell.as_ref().unwrap()[i];
+                    n_genes <= *upper
+                }
+                (FlexValue::Relative(_), FlexValue::None) => {
+                    let sum_genes = sum_genes_per_cell[i];
+                    sum_genes >= lower_percentile
+                }
+                (FlexValue::None, FlexValue::Relative(_)) => {
+                    let sum_genes = sum_genes_per_cell[i];
+                    sum_genes <= upper_percentile
+                }
+                (FlexValue::None, FlexValue::None) => true,
             })
             .collect(),
     )
 }
 
+// TODO: refactor this and optimize code, here are unnecessary calculations
 pub fn filter_cells_inplace(
     adata: &mut IMAnnData,
     lower_lim: FlexValue,
@@ -76,11 +90,15 @@ pub fn filter_cells_inplace(
 ) -> anyhow::Result<()> {
     let need_gene_count =
         matches!(lower_lim, FlexValue::Absolute(_)) || matches!(upper_lim, FlexValue::Absolute(_));
+    log!(Level::Debug, "Performing filtering of all cells");    
+
     let (n_genes_per_cell, sum_genes_per_cell) = calculate_cell_stats(adata, need_gene_count)?;
 
+    log!(Level::Debug, "Calculating all sums");
     let (lower_percentile, upper_percentile) =
         calculate_percentiles(&sum_genes_per_cell, &lower_lim, &upper_lim)?;
 
+    log!(Level::Debug, "Creating a filtering mask");
     let mask = create_filter_mask(
         adata.n_obs(),
         &n_genes_per_cell,
@@ -91,9 +109,11 @@ pub fn filter_cells_inplace(
         upper_percentile,
     );
 
+    log!(Level::Debug, "Getting selection info");
     let selection = crate::shared::processing::get_select_info_obs(Some(mask.view()))?;
     let selection_refs: Vec<&SelectInfoElem> = selection.iter().collect();
 
+    log!(Level::Debug, "Subsetting inplace");
     adata.subset_inplace(selection_refs.as_slice())
 }
 
@@ -169,6 +189,7 @@ fn calculate_gene_stats(
     Ok((n_cells_per_gene, sum_cells_per_gene))
 }
 
+// TODO: refactor this and optimize code
 fn create_gene_filter_mask(
     n_vars: usize,
     n_cells_per_gene: &Option<Vec<u32>>,
@@ -183,29 +204,39 @@ fn create_gene_filter_mask(
             .map(|i| match (lower_lim, upper_lim) {
                 (FlexValue::Absolute(lower), FlexValue::Absolute(upper)) => {
                     let n_cells = n_cells_per_gene.as_ref().unwrap()[i];
-                    println!("n_cells: {}", n_cells);
                     n_cells >= *lower && n_cells <= *upper
                 }
                 (FlexValue::Relative(_), FlexValue::Relative(_)) => {
                     let sum_cells = sum_cells_per_gene[i];
-                    println!("sum_cells: {}", sum_cells);
                     sum_cells >= lower_percentile && sum_cells <= upper_percentile
                 }
                 (FlexValue::Absolute(lower), FlexValue::Relative(_)) => {
                     let n_cells = n_cells_per_gene.as_ref().unwrap()[i];
                     let sum_cells = sum_cells_per_gene[i];
-                    println!("n_cells: {}", n_cells);
-                    println!("sum_cells: {}", sum_cells);
                     n_cells >= *lower && sum_cells <= upper_percentile
                 }
                 (FlexValue::Relative(_), FlexValue::Absolute(upper)) => {
                     let n_cells = n_cells_per_gene.as_ref().unwrap()[i];
                     let sum_cells = sum_cells_per_gene[i];
-                    println!("n_cells: {}", n_cells);
-                    println!("sum_cells: {}", sum_cells);
                     sum_cells >= lower_percentile && n_cells <= *upper
                 }
-                _ => true,
+                (FlexValue::Absolute(lower), FlexValue::None) => {
+                    let n_cells = n_cells_per_gene.as_ref().unwrap()[i];
+                    n_cells >= *lower
+                }
+                (FlexValue::None, FlexValue::Absolute(upper)) => {
+                    let n_cells = n_cells_per_gene.as_ref().unwrap()[i];
+                    n_cells <= *upper
+                }
+                (FlexValue::Relative(_), FlexValue::None) => {
+                    let sum_cells = sum_cells_per_gene[i];
+                    sum_cells >= lower_percentile
+                }
+                (FlexValue::None, FlexValue::Relative(_)) => {
+                    let sum_cells = sum_cells_per_gene[i];
+                    sum_cells <= upper_percentile
+                }
+                (FlexValue::None, FlexValue::None) => true,
             })
             .collect(),
     )
