@@ -1,8 +1,9 @@
 {
     "r.lsp.promptToInstall": false,
-    "rust-analyzer.numThreads": 32,
+    "rust-analyzer.numThreads": 64,
     "rust-analyzer.cargo.features": [
-        "parallel"
+        "faer",
+        "lapack"
     ],
     "rust-analyzer.check.command": "clippy"
 }

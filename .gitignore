@@ -4,3 +4,4 @@ data/
 .idea/
 .DS_Store
 resources
+.vscode
