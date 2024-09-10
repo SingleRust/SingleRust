@@ -29,9 +29,7 @@ console = "0.15.8"
 anyhow = "1.0.86"
 rayon = {version = "1.9.0"}
 log = "0.4.22"
-#anndata-memory = "0.1.1-alpha.1"
-#anndata-memory = {git = "https://github.com/SingleRust/Anndata-Memory.git"}
-anndata-memory = {path = "/local/bachelor_thesis_ian/anndata-memory"}
+anndata-memory = "0.1.1-alpha.1"
 num-traits = "0.2.19"
 statrs = "0.17.1"
 ndarray-stats = "0.5.1"
