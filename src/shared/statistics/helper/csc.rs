@@ -2,6 +2,7 @@ use std::iter::Sum;
 
 use anndata::data::DynCscMatrix;
 use nalgebra_sparse::CscMatrix;
+use rayon::{iter::ParallelIterator, slice::ParallelSlice};
 
 use crate::{
     match_dyn_csc_matrix,
@@ -27,7 +28,7 @@ fn number_whole_helper<T: NumericOps>(
         Direction::Column => {
             Ok(csc
                 .col_offsets()
-                .windows(2)
+                .par_windows(2)
                 .map(|window| (window[1] - window[0]) as u32)
                 .collect())
         }
@@ -78,11 +79,7 @@ where
 {
     match direction {
         Direction::Row => {
-            let mut result = vec![0.0; csc.nrows()];
-            for (&row_index, &value) in csc.row_indices().iter().zip(csc.values().iter()) {
-                result[row_index] += f64::from(value);
-            }
-            Ok(result)
+            let result: Vec<_> = (0..csc.n)
         }
         Direction::Column => {
             let mut result = vec![0.0; csc.ncols()];

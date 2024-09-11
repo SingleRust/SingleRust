@@ -1,7 +1,8 @@
-use std::iter::Sum;
+use std::{iter::Sum, sync::atomic::{AtomicU32, Ordering}};
 
 use anndata::data::DynCsrMatrix;
 use nalgebra_sparse::CsrMatrix;
+use rayon::{iter::{IntoParallelRefIterator, ParallelIterator}, slice::ParallelSlice};
 
 use crate::{
     match_dyn_csr_matrix,
@@ -22,17 +23,18 @@ fn number_whole_helper<T: NumericOps>(
             // For row-wise computation
             Ok(csr
                 .row_offsets()
-                .windows(2)
+                .par_windows(2)
                 .map(|window| (window[1] - window[0]) as u32)
                 .collect())
         }
         Direction::Column => {
-            // For column-wise computation
-            let mut result = vec![0; csr.ncols()];
-            for &col_index in csr.col_indices() {
-                result[col_index] += 1;
-            }
-            Ok(result)
+            let result: Vec<_> = (0..csr.ncols()).map(|_| AtomicU32::new(0)).collect();
+            csr.col_indices()
+                .par_iter()
+                .for_each(|&col_index| {
+                    result[col_index].fetch_add(1, Ordering::Relaxed);
+                });
+            Ok(result.into_iter().map(|atomic| atomic.into_inner()).collect())
         }
     }
 }
