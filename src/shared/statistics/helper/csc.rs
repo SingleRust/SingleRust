@@ -1,7 +1,6 @@
-use std::iter::Sum;
-
 use anndata::data::DynCscMatrix;
 use nalgebra_sparse::CscMatrix;
+use num_traits::Zero;
 use rayon::{iter::ParallelIterator, slice::ParallelSlice};
 
 use crate::{
@@ -74,19 +73,27 @@ pub(crate) fn sum_whole(csc: &DynCscMatrix, direction: Direction) -> anyhow::Res
 
 fn sum_whole_helper<T>(csc: &CscMatrix<T>, direction: Direction) -> anyhow::Result<Vec<f64>>
 where
-    T: NumericOps,
+    T: NumericOps + Zero,
     f64: From<T>,
 {
+    let (col_offsets, row_indices, values) = csc.csc_data();
+
     match direction {
         Direction::Row => {
-            let result: Vec<_> = (0..csc.n)
+            let mut result = vec![T::zero(); csc.nrows()];
+            for (&row_index, &value) in row_indices.iter().zip(values.iter()) {
+                result[row_index] += value;
+            }
+            Ok(result.into_iter().map(f64::from).collect())
         }
         Direction::Column => {
-            let mut result = vec![0.0; csc.ncols()];
-            for (col, col_vec) in csc.col_iter().enumerate() {
-                result[col] = col_vec.values().iter().map(|&v| f64::from(v)).sum();
+            let mut result = vec![T::zero(); csc.ncols()];
+            for i in 0..csc.ncols() {
+                let start = col_offsets[i];
+                let end = col_offsets[i + 1];
+                result[i] = values[start..end].iter().fold(T::zero(), |acc, &x| acc + x);
             }
-            Ok(result)
+            Ok(result.into_iter().map(f64::from).collect())
         }
     }
 }
@@ -105,7 +112,7 @@ fn sum_chunk_helper<T>(
     reference: &mut Vec<f64>,
 ) -> anyhow::Result<()>
 where
-    T: NumericOps + Sum,
+    T: NumericOps,
     f64: From<T>,
 {
     match direction {

@@ -1,6 +1,6 @@
 [package]
 name = "single_rust"
-version = "0.1.0-alpha.3"
+version = "0.1.0-alpha.4"
 edition = "2021"
 license-file = "LICENSE.md"
 readme = "README.md"
@@ -40,8 +40,10 @@ smartcore = {version = "0.3.2", features = ["ndarray-bindings"]}
 nshare = {version = "0.9.0", features = ["ndarray", "nalgebra"]}
 nalgebra = {version = "0.33.0", features = ["serde-serialize", "rayon"]}
 single_algebra = {version = "0.1.0-alpha.3"}
-#ndarray-linalg = {version = "0.16.0"}
 
 [dev-dependencies]
 env_logger = "0.11.5"
+
+[profile.dev.package.faer]
+opt-level = 3
 

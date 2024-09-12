@@ -1,6 +1,5 @@
 {
     "r.lsp.promptToInstall": false,
-    "rust-analyzer.numThreads": 64,
     "rust-analyzer.cargo.features": [
         "faer",
         "lapack"

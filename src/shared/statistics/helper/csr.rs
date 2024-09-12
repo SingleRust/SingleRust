@@ -2,6 +2,7 @@ use std::{iter::Sum, sync::atomic::{AtomicU32, Ordering}};
 
 use anndata::data::DynCsrMatrix;
 use nalgebra_sparse::CsrMatrix;
+use num_traits::Zero;
 use rayon::{iter::{IntoParallelRefIterator, ParallelIterator}, slice::ParallelSlice};
 
 use crate::{
@@ -23,18 +24,17 @@ fn number_whole_helper<T: NumericOps>(
             // For row-wise computation
             Ok(csr
                 .row_offsets()
-                .par_windows(2)
+                .windows(2)
                 .map(|window| (window[1] - window[0]) as u32)
                 .collect())
         }
         Direction::Column => {
-            let result: Vec<_> = (0..csr.ncols()).map(|_| AtomicU32::new(0)).collect();
-            csr.col_indices()
-                .par_iter()
-                .for_each(|&col_index| {
-                    result[col_index].fetch_add(1, Ordering::Relaxed);
-                });
-            Ok(result.into_iter().map(|atomic| atomic.into_inner()).collect())
+            // For column-wise computation
+            let mut result = vec![0; csr.ncols()];
+            for &col_index in csr.col_indices() {
+                result[col_index] += 1;
+            }
+            Ok(result)
         }
     }
 }
@@ -82,23 +82,27 @@ pub(crate) fn sum_whole(csr: &DynCsrMatrix, direction: Direction) -> anyhow::Res
 /// Computes the sum of entries in the defined direction (row/column wise)
 fn sum_whole_helper<T>(csr: &CsrMatrix<T>, direction: Direction) -> anyhow::Result<Vec<f64>>
 where
-    T: NumericOps,
+    T: NumericOps + Zero,
     f64: From<T>,
 {
+    let (row_offsets, col_indices, values) = csr.csr_data();
+
     match direction {
         Direction::Row => {
-            let mut result = vec![0.0; csr.nrows()];
-            for (row, row_vec) in csr.row_iter().enumerate() {
-                result[row] = row_vec.values().iter().map(|&v| f64::from(v)).sum();
+            let mut result = vec![T::zero(); csr.nrows()];
+            for i in 0..csr.nrows() {
+                let start = row_offsets[i];
+                let end = row_offsets[i + 1];
+                result[i] = values[start..end].iter().fold(T::zero(), |acc, &x| acc + x);
             }
-            Ok(result)
+            Ok(result.into_iter().map(f64::from).collect())
         }
         Direction::Column => {
-            let mut result = vec![0.0; csr.ncols()];
-            for (&col_index, &value) in csr.col_indices().iter().zip(csr.values().iter()) {
-                result[col_index] += f64::from(value);
+            let mut result = vec![T::zero(); csr.ncols()];
+            for (&col_index, &value) in col_indices.iter().zip(values.iter()) {
+                result[col_index] += value;
             }
-            Ok(result)
+            Ok(result.into_iter().map(f64::from).collect())
         }
     }
 }
