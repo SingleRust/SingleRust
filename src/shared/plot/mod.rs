@@ -7,7 +7,7 @@ use ndarray::{s, ArrayD, ArrayView2, Ix2};
 use plotters::{
     chart::ChartBuilder,
     prelude::{BitMapBackend, Circle, IntoDrawingArea},
-    style::{Color, IntoFont, Palette, Palette99, RGBAColor, BLACK},
+    style::{Color, IntoFont, Palette, Palette99, BLACK},
 };
 use log::{log, Level};
 pub use settings::PcaPlotSettings;

@@ -6,9 +6,12 @@ pub(crate) mod utils;
 use std::collections::HashMap;
 use std::ops::Add;
 
-use anndata::data::{DynArray, DynCscMatrix, DynCsrMatrix, SelectInfoElem};
+use anndata::backend::{DataType, ScalarType};
+use anndata::data::DynCsrMatrix;
+use anndata::data::{DynArray, DynCscMatrix, SelectInfoElem};
 use anndata::{data::Shape, ArrayData, HasShape};
-use anyhow::anyhow;
+use anndata_memory::IMArrayElement;
+use anyhow::{anyhow, bail};
 use nalgebra_sparse::{CscMatrix, CsrMatrix};
 use ndarray::{Array2, ArrayD, Ix2};
 use num_traits::{Bounded, NumCast, One, Zero};
@@ -59,9 +62,10 @@ impl Direction {
     }
 }
 
+// TODO: implement more flexibility here!
 pub enum FlexValue {
-    Absolute(u32),
-    Relative(f64),
+    Absolute(f32),
+    Relative(f32),
     None,
 }
 
@@ -99,10 +103,28 @@ impl FlexValue {
             Self::None => true,
         }
     }
+
+    pub fn is_some(&self) -> bool {
+        !self.is_none()
+    }
 }
 
-trait NumericOps: Zero + One + NumCast + Copy + std::ops::AddAssign + PartialOrd + Bounded + Add<Output = Self> {}
-impl<T: Zero + One + NumCast + Copy + std::ops::AddAssign + PartialOrd + Bounded + Add<Output = Self>> NumericOps for T {}
+trait NumericOps:
+    Zero + One + NumCast + Copy + std::ops::AddAssign + PartialOrd + Bounded + Add<Output = Self>
+{
+}
+impl<
+        T: Zero
+            + One
+            + NumCast
+            + Copy
+            + std::ops::AddAssign
+            + PartialOrd
+            + Bounded
+            + Add<Output = Self>,
+    > NumericOps for T
+{
+}
 
 trait FloatOps: NumericOps + num_traits::Float {}
 impl<T: NumericOps + num_traits::Float> FloatOps for T {}
@@ -119,7 +141,6 @@ macro_rules! match_dyn_csr_matrix {
             DynCsrMatrix::U16(d) => $fun(d, $($arg),*),
             DynCsrMatrix::U32(d) => $fun(d, $($arg),*),
             DynCsrMatrix::U64(_d) => panic!("U64 CSR matrices are not supported for this operation"),
-            DynCsrMatrix::Usize(_d) => panic!("Usize CSR matrices are not supported for this operation"),
             DynCsrMatrix::F32(d) => $fun(d, $($arg),*),
             DynCsrMatrix::F64(d) => $fun(d, $($arg),*),
             DynCsrMatrix::Bool(_) => panic!("Boolean CSR matrices are not supported for this operation"),
@@ -140,11 +161,164 @@ macro_rules! match_dyn_csc_matrix {
             DynCscMatrix::U16(d) => $fun(d, $($arg),*),
             DynCscMatrix::U32(d) => $fun(d, $($arg),*),
             DynCscMatrix::U64(_d) => panic!("U64 CSC matrices are not supported for this operation"),
-            DynCscMatrix::Usize(_d) => panic!("Usize CSC matrices are not supported for this operation"),
             DynCscMatrix::F32(d) => $fun(d, $($arg),*),
             DynCscMatrix::F64(d) => $fun(d, $($arg),*),
             DynCscMatrix::Bool(_) => panic!("Boolean CSC matrices are not supported for this operation"),
             DynCscMatrix::String(_) => panic!("String CSC matrices are not supported for this operation"),
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! match_array_data_apply_function {
+    // Pattern for no arguments
+    ($data:expr, $fun:ident) => {
+        match $data {
+            anndata::ArrayData::CsrMatrix(dyn_csr_matrix) => {
+                match dyn_csr_matrix {
+                    anndata::data::DynCsrMatrix::I8(matrix) => matrix.$fun(),
+                    anndata::data::DynCsrMatrix::I16(matrix) => matrix.$fun(),
+                    anndata::data::DynCsrMatrix::I32(matrix) => matrix.$fun(),
+                    anndata::data::DynCsrMatrix::I64(matrix) => matrix.$fun(),
+                    anndata::data::DynCsrMatrix::U8(matrix) => matrix.$fun(),
+                    anndata::data::DynCsrMatrix::U16(matrix) => matrix.$fun(),
+                    anndata::data::DynCsrMatrix::U32(matrix) => matrix.$fun(),
+                    anndata::data::DynCsrMatrix::U64(matrix) => matrix.$fun(),
+                    anndata::data::DynCsrMatrix::F32(matrix) => matrix.$fun(),
+                    anndata::data::DynCsrMatrix::F64(matrix) => matrix.$fun(),
+                    _ => bail!("This operation is only supported on numeric types!")
+                }
+            },
+            anndata::ArrayData::CscMatrix(dyn_csc_matrix) => {
+                match dyn_csc_matrix {
+                    anndata::data::DynCscMatrix::I8(matrix) => matrix.$fun(),
+                    anndata::data::DynCscMatrix::I16(matrix) => matrix.$fun(),
+                    anndata::data::DynCscMatrix::I32(matrix) => matrix.$fun(),
+                    anndata::data::DynCscMatrix::I64(matrix) => matrix.$fun(),
+                    anndata::data::DynCscMatrix::U8(matrix) => matrix.$fun(),
+                    anndata::data::DynCscMatrix::U16(matrix) => matrix.$fun(),
+                    anndata::data::DynCscMatrix::U32(matrix) => matrix.$fun(),
+                    anndata::data::DynCscMatrix::U64(matrix) => matrix.$fun(),
+                    anndata::data::DynCscMatrix::F32(matrix) => matrix.$fun(),
+                    anndata::data::DynCscMatrix::F64(matrix) => matrix.$fun(),
+                    _ => bail!("This operation is only supported on numeric types!")
+                }
+            },
+            _ => bail!("This operation is currently only supported for CSC and CSR matrices.")
+        }
+    };
+
+    // Pattern for one or more arguments
+    ($data:expr, $fun:ident, $($arg:expr),+) => {
+        match $data {
+            anndata::ArrayData::CsrMatrix(dyn_csr_matrix) => {
+                match dyn_csr_matrix {
+                    anndata::data::DynCsrMatrix::I8(matrix) => matrix.$fun($($arg),*),
+                    anndata::data::DynCsrMatrix::I16(matrix) => matrix.$fun($($arg),*),
+                    anndata::data::DynCsrMatrix::I32(matrix) => matrix.$fun($($arg),*),
+                    anndata::data::DynCsrMatrix::I64(matrix) => matrix.$fun($($arg),*),
+                    anndata::data::DynCsrMatrix::U8(matrix) => matrix.$fun($($arg),*),
+                    anndata::data::DynCsrMatrix::U16(matrix) => matrix.$fun($($arg),*),
+                    anndata::data::DynCsrMatrix::U32(matrix) => matrix.$fun($($arg),*),
+                    anndata::data::DynCsrMatrix::U64(matrix) => matrix.$fun($($arg),*),
+                    anndata::data::DynCsrMatrix::F32(matrix) => matrix.$fun($($arg),*),
+                    anndata::data::DynCsrMatrix::F64(matrix) => matrix.$fun($($arg),*),
+                    _ => bail!("This operation is only supported on numeric types!")
+                }
+            },
+            anndata::ArrayData::CscMatrix(dyn_csc_matrix) => {
+                match dyn_csc_matrix {
+                    anndata::data::DynCscMatrix::I8(matrix) => matrix.$fun($($arg),*),
+                    anndata::data::DynCscMatrix::I16(matrix) => matrix.$fun($($arg),*),
+                    anndata::data::DynCscMatrix::I32(matrix) => matrix.$fun($($arg),*),
+                    anndata::data::DynCscMatrix::I64(matrix) => matrix.$fun($($arg),*),
+                    anndata::data::DynCscMatrix::U8(matrix) => matrix.$fun($($arg),*),
+                    anndata::data::DynCscMatrix::U16(matrix) => matrix.$fun($($arg),*),
+                    anndata::data::DynCscMatrix::U32(matrix) => matrix.$fun($($arg),*),
+                    anndata::data::DynCscMatrix::U64(matrix) => matrix.$fun($($arg),*),
+                    anndata::data::DynCscMatrix::F32(matrix) => matrix.$fun($($arg),*),
+                    anndata::data::DynCscMatrix::F64(matrix) => matrix.$fun($($arg),*),
+                    _ => bail!("This operation is only supported on numeric types!")
+                }
+            },
+            _ => bail!("This operation is currently only supported for CSC and CSR matrices.")
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! match_array_data_apply_function_with_generics {
+    // Pattern for generics and no arguments
+    ($data:expr, $fun:ident, [$($types:ty),+]) => {
+        match $data {
+            anndata::ArrayData::CsrMatrix(dyn_csr_matrix) => {
+                match dyn_csr_matrix {
+                    anndata::data::DynCsrMatrix::I8(matrix) => matrix.$fun::<$($types),+>(),
+                    anndata::data::DynCsrMatrix::I16(matrix) => matrix.$fun::<$($types),+>(),
+                    anndata::data::DynCsrMatrix::I32(matrix) => matrix.$fun::<$($types),+>(),
+                    anndata::data::DynCsrMatrix::I64(matrix) => matrix.$fun::<$($types),+>(),
+                    anndata::data::DynCsrMatrix::U8(matrix) => matrix.$fun::<$($types),+>(),
+                    anndata::data::DynCsrMatrix::U16(matrix) => matrix.$fun::<$($types),+>(),
+                    anndata::data::DynCsrMatrix::U32(matrix) => matrix.$fun::<$($types),+>(),
+                    anndata::data::DynCsrMatrix::U64(matrix) => matrix.$fun::<$($types),+>(),
+                    anndata::data::DynCsrMatrix::F32(matrix) => matrix.$fun::<$($types),+>(),
+                    anndata::data::DynCsrMatrix::F64(matrix) => matrix.$fun::<$($types),+>(),
+                    _ => bail!("This operation is only supported on numeric types!")
+                }
+            },
+            anndata::ArrayData::CscMatrix(dyn_csc_matrix) => {
+                match dyn_csc_matrix {
+                    anndata::data::DynCscMatrix::I8(matrix) => matrix.$fun::<$($types),+>(),
+                    anndata::data::DynCscMatrix::I16(matrix) => matrix.$fun::<$($types),+>(),
+                    anndata::data::DynCscMatrix::I32(matrix) => matrix.$fun::<$($types),+>(),
+                    anndata::data::DynCscMatrix::I64(matrix) => matrix.$fun::<$($types),+>(),
+                    anndata::data::DynCscMatrix::U8(matrix) => matrix.$fun::<$($types),+>(),
+                    anndata::data::DynCscMatrix::U16(matrix) => matrix.$fun::<$($types),+>(),
+                    anndata::data::DynCscMatrix::U32(matrix) => matrix.$fun::<$($types),+>(),
+                    anndata::data::DynCscMatrix::U64(matrix) => matrix.$fun::<$($types),+>(),
+                    anndata::data::DynCscMatrix::F32(matrix) => matrix.$fun::<$($types),+>(),
+                    anndata::data::DynCscMatrix::F64(matrix) => matrix.$fun::<$($types),+>(),
+                    _ => bail!("This operation is only supported on numeric types!")
+                }
+            },
+            _ => bail!("This operation is currently only supported for CSC and CSR matrices.")
+        }
+    };
+
+    // Pattern for generics and arguments
+    ($data:expr, $fun:ident, [$($types:ty),+], $($arg:expr),+) => {
+        match $data {
+            anndata::ArrayData::CsrMatrix(dyn_csr_matrix) => {
+                match dyn_csr_matrix {
+                    anndata::data::DynCsrMatrix::I8(matrix) => matrix.$fun::<$($types),+>($($arg),+),
+                    anndata::data::DynCsrMatrix::I16(matrix) => matrix.$fun::<$($types),+>($($arg),+),
+                    anndata::data::DynCsrMatrix::I32(matrix) => matrix.$fun::<$($types),+>($($arg),+),
+                    anndata::data::DynCsrMatrix::I64(matrix) => matrix.$fun::<$($types),+>($($arg),+),
+                    anndata::data::DynCsrMatrix::U8(matrix) => matrix.$fun::<$($types),+>($($arg),+),
+                    anndata::data::DynCsrMatrix::U16(matrix) => matrix.$fun::<$($types),+>($($arg),+),
+                    anndata::data::DynCsrMatrix::U32(matrix) => matrix.$fun::<$($types),+>($($arg),+),
+                    anndata::data::DynCsrMatrix::U64(matrix) => matrix.$fun::<$($types),+>($($arg),+),
+                    anndata::data::DynCsrMatrix::F32(matrix) => matrix.$fun::<$($types),+>($($arg),+),
+                    anndata::data::DynCsrMatrix::F64(matrix) => matrix.$fun::<$($types),+>($($arg),+),
+                    _ => bail!("This operation is only supported on numeric types!")
+                }
+            },
+            anndata::ArrayData::CscMatrix(dyn_csc_matrix) => {
+                match dyn_csc_matrix {
+                    anndata::data::DynCscMatrix::I8(matrix) => matrix.$fun::<$($types),+>($($arg),+),
+                    anndata::data::DynCscMatrix::I16(matrix) => matrix.$fun::<$($types),+>($($arg),+),
+                    anndata::data::DynCscMatrix::I32(matrix) => matrix.$fun::<$($types),+>($($arg),+),
+                    anndata::data::DynCscMatrix::I64(matrix) => matrix.$fun::<$($types),+>($($arg),+),
+                    anndata::data::DynCscMatrix::U8(matrix) => matrix.$fun::<$($types),+>($($arg),+),
+                    anndata::data::DynCscMatrix::U16(matrix) => matrix.$fun::<$($types),+>($($arg),+),
+                    anndata::data::DynCscMatrix::U32(matrix) => matrix.$fun::<$($types),+>($($arg),+),
+                    anndata::data::DynCscMatrix::U64(matrix) => matrix.$fun::<$($types),+>($($arg),+),
+                    anndata::data::DynCscMatrix::F32(matrix) => matrix.$fun::<$($types),+>($($arg),+),
+                    anndata::data::DynCscMatrix::F64(matrix) => matrix.$fun::<$($types),+>($($arg),+),
+                    _ => bail!("This operation is only supported on numeric types!")
+                }
+            },
+            _ => bail!("This operation is currently only supported for CSC and CSR matrices.")
         }
     };
 }
@@ -170,12 +344,10 @@ fn convert_to_array_f64_array(darray: &DynArray) -> anyhow::Result<Array2<f64>> 
         DynArray::U16(arr) => convert_arrayd_to_array2_f64(arr),
         DynArray::U32(arr) => convert_arrayd_to_array2_f64(arr),
         DynArray::U64(_) => todo!(),
-        DynArray::Usize(_) => todo!(),
         DynArray::F32(arr) => convert_arrayd_to_array2_f64(arr),
         DynArray::F64(array) => convert_arrayd_to_array2_f64(array),
         DynArray::Bool(_) => todo!(),
         DynArray::String(_) => todo!(),
-        DynArray::Categorical(_) => todo!(),
     }
 }
 
@@ -238,7 +410,11 @@ fn convert_to_array_f64_csr_selected<T: NumericOps>(
     let mut dense = Array2::<f64>::zeros((row_indices.len(), col_indices.len()));
 
     // Create a mapping from original column indices to output column indices
-    let col_map: HashMap<usize, usize> = col_indices.iter().enumerate().map(|(i, &col)| (col, i)).collect();
+    let col_map: HashMap<usize, usize> = col_indices
+        .iter()
+        .enumerate()
+        .map(|(i, &col)| (col, i))
+        .collect();
 
     for (out_row, &row) in row_indices.iter().enumerate() {
         if row < csr.nrows() {
@@ -269,7 +445,11 @@ fn convert_to_array_f64_csc_selected<T: NumericOps>(
     let mut dense = Array2::<f64>::zeros((row_indices.len(), col_indices.len()));
 
     // Create a mapping from original row indices to output row indices
-    let row_map: HashMap<usize, usize> = row_indices.iter().enumerate().map(|(i, &row)| (row, i)).collect();
+    let row_map: HashMap<usize, usize> = row_indices
+        .iter()
+        .enumerate()
+        .map(|(i, &row)| (row, i))
+        .collect();
 
     for (out_col, &col) in col_indices.iter().enumerate() {
         if col < csc.ncols() {
@@ -314,13 +494,35 @@ pub fn convert_to_array_f64_selected(
     }
 }
 
-// pub fn convert_to_dense_matrix_f64(arr_data: &ArrayData) -> anyhow::Result<Array2<f64>> {
-//     let shape = arr_data.shape();
-//     match arr_data {
-//         ArrayData::Array(_) => todo!(),
-//         ArrayData::CsrMatrix(csr) => match_dyn_csr_matrix!(csr, convert_to_array_f64_csr, shape),
-//         ArrayData::CsrNonCanonical(_csc) => todo!(),
-//         ArrayData::CscMatrix(csc) => match_dyn_csc_matrix!(csc, convert_to_array_f64_csc, shape),
-//         ArrayData::DataFrame(_) => todo!(),
-//     }
-// }
+pub fn need_conversion_target_float_type(scalar_type: &ScalarType) -> anyhow::Result<bool> {
+    match scalar_type {
+        anndata::backend::ScalarType::I8 => Ok(true),
+        anndata::backend::ScalarType::I16 => Ok(true),
+        anndata::backend::ScalarType::I32 => Ok(true),
+        anndata::backend::ScalarType::I64 => Ok(true),
+        anndata::backend::ScalarType::U8 => Ok(true),
+        anndata::backend::ScalarType::U16 => Ok(true),
+        anndata::backend::ScalarType::U32 => Ok(true),
+        anndata::backend::ScalarType::U64 => Ok(true),
+        anndata::backend::ScalarType::F32 => Ok(false),
+        anndata::backend::ScalarType::F64 => Ok(false),
+        anndata::backend::ScalarType::Bool => {
+            bail!("Cannot use a Scalar of type <Bool> in the normalization procedure.")
+        }
+        anndata::backend::ScalarType::String => {
+            bail!("Cannot use a Scalar of type <String> in the normalization procedure.")
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum Precision {
+    Single,
+    Double,
+}
+
+impl Default for Precision {
+    fn default() -> Self {
+        Precision::Single // more than sufficient for single-cell data analysis for now
+    }
+}

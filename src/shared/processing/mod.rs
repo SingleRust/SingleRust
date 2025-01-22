@@ -1,12 +1,6 @@
 use anndata::data::SelectInfoElem;
 use log::{log, Level};
-use ndarray::{Array1, Array2, ArrayView, Ix1};
-use nshare::{ToNalgebra, ToNdarray2};
-use rayon::ThreadPool;
-
-//pub mod pca;
-
-//pub mod pcav2;
+use ndarray::{ArrayView, Ix1};
 
 pub fn get_select_info_obs(
     obs_mask: Option<ArrayView<'_, bool, Ix1>>,
@@ -49,17 +43,3 @@ pub fn get_select_info_vars(
     Ok(selection)
 }
 
-pub fn calculate_svd(
-    array: ndarray::ArrayView2<f64>,
-    thread_pool: &ThreadPool,
-) -> anyhow::Result<(Array1<f64>, Array2<f64>)> {
-    let m = array.into_nalgebra();
-    let svd = thread_pool.install(|| m.svd(false, true));
-
-    // return values:
-
-    let s = Array1::from(svd.singular_values.as_slice().to_vec());
-    let vt = svd.v_t.unwrap().into_ndarray2();
-
-    Ok((s, vt))
-}

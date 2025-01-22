@@ -1,6 +1,6 @@
 [package]
 name = "single_rust"
-version = "0.1.0-alpha.3"
+version = "0.2.1-alpha.0"
 edition = "2021"
 license-file = "LICENSE.md"
 readme = "README.md"
@@ -15,11 +15,16 @@ lapack = ["single_algebra/lapack"]
 faer = ["single_algebra/faer"]
 
 [dependencies]
-anndata = "0.4.2"
-anndata-hdf5 = "0.3.0"
-polars = { version = "0.40", features = ["lazy", "decompress-fast", "ndarray", "dtype-full"] }
-ndarray = { version = "0.15.6", features = ["rayon"]}
-nalgebra-sparse = "0.9.0"
+anndata = "0.6.1"
+anndata-hdf5 = "0.5.0"
+polars = { version = "0.45.1", features = [
+    "lazy",
+    "decompress-fast",
+    "ndarray",
+    "dtype-full",
+] }
+ndarray = { version = "0.16.1", features = ["rayon"] }
+nalgebra-sparse = "0.10.0"
 smallvec = "1.11"
 permutation = "0.4"
 flate2 = "1.0.28"
@@ -27,21 +32,20 @@ itertools = "0.13.0"
 indicatif = "0.17.8"
 console = "0.15.8"
 anyhow = "1.0.86"
-rayon = {version = "1.9.0"}
+rayon = { version = "1.9.0" }
 log = "0.4.22"
-anndata-memory = "0.1.1-alpha.1"
+anndata-memory = "0.1.2-alpha.0"
 num-traits = "0.2.19"
-statrs = "0.17.1"
-ndarray-stats = "0.5.1"
+statrs = "0.18.0"
+ndarray-stats = "0.6.0"
 noisy_float = "0.2.0"
 rand = "0.8.5"
 plotters = "0.3.6"
-smartcore = {version = "0.3.2", features = ["ndarray-bindings"]}
-nshare = {version = "0.9.0", features = ["ndarray", "nalgebra"]}
-nalgebra = {version = "0.33.0", features = ["serde-serialize", "rayon"]}
-single_algebra = {version = "0.1.0-alpha.3"}
+smartcore = { version = "0.4.0", features = ["ndarray-bindings"] }
+nshare = { version = "0.10.0", features = ["ndarray", "nalgebra"] }
+nalgebra = { version = "0.33.2", features = ["serde-serialize", "rayon"] }
+single_algebra = { version = "0.1.2-alpha.1" }
 #ndarray-linalg = {version = "0.16.0"}
 
 [dev-dependencies]
 env_logger = "0.11.5"
-
