@@ -5,11 +5,17 @@
 pub mod backed;
 pub mod io;
 pub mod memory;
-pub(crate) mod shared;
+pub mod shared;
 
+pub use shared::convert_to_array_f64;
+pub use shared::plot::PcaPlotSettings;
 pub use shared::ComputationMode;
 pub use shared::Direction;
 pub use shared::FeatureSelection;
 pub use shared::FlexValue;
-pub use shared::convert_to_array_f64;
-pub use shared::plot::PcaPlotSettings;
+
+pub use shared::statistics::ComputeMinMax;
+pub use shared::statistics::ComputeNonZero;
+pub use shared::statistics::ComputeSum;
+pub use shared::statistics::ComputeVariance;
+

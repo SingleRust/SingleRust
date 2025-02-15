@@ -11,6 +11,12 @@ pub trait ComputeNonZero {
     fn nonzero_chunk<T>(&self, direction: &Direction, reference: &mut [T]) -> anyhow::Result<()>
     where
         T: PrimInt + Unsigned + Zero + AddAssign;
+
+    // #[cfg(feature = "simba")]
+    // fn simba_nonzero_whole<T>(&self, direction: &Direction) -> anyhow::Result<Vec<T::Element>>
+    // where
+    //     T: simba::simd::SimdValue + simba::simd::PrimitiveSimdValue,
+    //     T::Element: PrimInt + Unsigned + Zero + AddAssign;
 }
 
 pub trait ComputeSum {

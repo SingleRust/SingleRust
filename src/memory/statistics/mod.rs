@@ -1,17 +1,16 @@
-use std::ops::Deref;
+use std::ops::{AddAssign, Deref};
 pub mod structs;
 
 use anndata_memory::{IMAnnData, IMArrayElement};
 use anyhow::bail;
+use num_traits::{PrimInt, Unsigned, Zero};
 use single_algebra::sparse::{MatrixMinMax, MatrixNonZero, MatrixSum, MatrixVariance};
+use single_algebra::Direction;
 use structs::StatisticsContainer;
 
 use crate::{
     match_array_data_apply_function, match_array_data_apply_function_with_generics,
-    shared::{
-        statistics::{ComputeMinMax, ComputeNonZero, ComputeSum, ComputeVariance},
-        Direction,
-    },
+    shared::statistics::{ComputeMinMax, ComputeNonZero, ComputeSum, ComputeVariance},
 };
 
 impl ComputeNonZero for IMArrayElement {
@@ -48,6 +47,24 @@ impl ComputeNonZero for IMArrayElement {
             }
         }
     }
+
+    // #[cfg(feature = "simba")]
+    // fn simba_nonzero_whole<T>(&self, direction: &Direction) -> anyhow::Result<Vec<T::Element>>
+    // where
+    //     T: simba::simd::SimdValue + simba::simd::PrimitiveSimdValue,
+    //     T::Element: PrimInt + Unsigned + Zero + AddAssign,
+    // {
+    //     let read_guard = self.0.read_inner();
+    //     let data = read_guard.deref();
+    //     match direction {
+    //         single_algebra::Direction::COLUMN => {
+    //             match_array_data_apply_function_with_generics!(data, simba_nonzero_col, [T])
+    //         }
+    //         single_algebra::Direction::ROW => {
+    //             match_array_data_apply_function_with_generics!(data, simba_nonzero_row, [T])
+    //         }
+    //     }
+    // }
 }
 
 impl ComputeSum for IMArrayElement {
@@ -182,10 +199,18 @@ impl ComputeMinMax for IMArrayElement {
 
         match direction {
             single_algebra::Direction::COLUMN => {
-                match_array_data_apply_function!(data, min_max_col_chunk, reference)
+                match_array_data_apply_function!(
+                    data,
+                    min_max_col_chunk,
+                    (reference.0, reference.1)
+                )
             }
             single_algebra::Direction::ROW => {
-                match_array_data_apply_function!(data, min_max_row_chunk, reference)
+                match_array_data_apply_function!(
+                    data,
+                    min_max_row_chunk,
+                    (reference.0, reference.1)
+                )
             }
         }
     }

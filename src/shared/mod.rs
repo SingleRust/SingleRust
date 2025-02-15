@@ -6,11 +6,10 @@ pub(crate) mod utils;
 use std::collections::HashMap;
 use std::ops::Add;
 
-use anndata::backend::{DataType, ScalarType};
+use anndata::backend::ScalarType;
 use anndata::data::DynCsrMatrix;
 use anndata::data::{DynArray, DynCscMatrix, SelectInfoElem};
 use anndata::{data::Shape, ArrayData, HasShape};
-use anndata_memory::IMArrayElement;
 use anyhow::{anyhow, bail};
 use nalgebra_sparse::{CscMatrix, CsrMatrix};
 use ndarray::{Array2, ArrayD, Ix2};

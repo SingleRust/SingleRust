@@ -1,6 +1,9 @@
 use anndata::data::SelectInfoElem;
 use log::{log, Level};
 use ndarray::{ArrayView, Ix1};
+use polars::datatypes::PolarsDataType;
+use polars::export::arrow::array::iterator::ArrayAccessor;
+use polars::prelude::DataType;
 
 pub fn get_select_info_obs(
     obs_mask: Option<ArrayView<'_, bool, Ix1>>,
@@ -43,3 +46,220 @@ pub fn get_select_info_vars(
     Ok(selection)
 }
 
+#[derive(Debug)]
+pub enum FlavorType {
+    Seurat,
+    CellRanger,
+    SVR,
+}
+
+pub struct HVGParams {
+    pub min_mean: f64,
+    pub max_mean: f64,
+    pub min_dispersion: f64,
+    pub max_dispersion: f64,
+    pub n_bins: usize,
+    pub n_top_genes: Option<usize>,
+    pub flavor: FlavorType,
+    pub span: f64,
+    pub batch_key: Option<String>,
+}
+
+impl Default for HVGParams {
+    fn default() -> Self {
+        HVGParams {
+            min_mean: 0.0125,
+            max_mean: 3.0,
+            min_dispersion: 0.5,
+            max_dispersion: f64::INFINITY,
+            n_bins: 20,
+            n_top_genes: None,
+            flavor: FlavorType::Seurat,
+            span: 0.3,
+            batch_key: None,
+        }
+    }
+}
+
+pub fn standardize_log(x: f64, mu: f64, sigma: f64) -> f64 {
+    if sigma == 0.0 {
+        return 0.0;
+    }
+    (x - mu) / sigma
+}
+
+pub fn standardize_log_form_vec(vec: &[f64]) -> Vec<f64> {
+    let n = vec.len() as f64;
+    let mu: f64 = vec.iter().sum::<f64>() / n;
+    let sigma = (vec.iter().map(|x| (x - mu).powi(2)).sum::<f64>() / n).sqrt();
+    vec.iter().map(|&x| standardize_log(x, mu, sigma)).collect()
+}
+
+pub fn normalize_per_bin(
+    log_means: &[f64],
+    log_dispersions: &[f64],
+    n_bins: usize,
+) -> anyhow::Result<Vec<f64>> {
+    let min_mean = log_means.iter().fold(f64::INFINITY, |a, &b| a.min(b));
+    let max_mean = log_means.iter().fold(f64::NEG_INFINITY, |a, &b| a.max(b));
+    let bin_width = (max_mean - min_mean) / n_bins as f64;
+
+    let mut norm_dispersions = vec![0.0; log_means.len()];
+    let mut bin_counts = vec![0; n_bins];
+    let mut bin_disp_means = vec![0.0; n_bins];
+    let mut bin_disp_stds = vec![0.0; n_bins];
+
+    for i in 0..log_means.len() {
+        let bin_idx = if log_means[i] == max_mean {
+            n_bins - 1
+        } else {
+            ((log_means[i] - min_mean) / bin_width) as usize
+        };
+
+        bin_counts[bin_idx] += 1;
+        bin_disp_means[bin_idx] += log_dispersions[i];
+    }
+
+    for i in 0..n_bins {
+        if bin_counts[i] > 0 {
+            bin_disp_means[i] /= bin_counts[i] as f64;
+        }
+    }
+
+    for i in 0..log_means.len() {
+        let bin_idx = if log_means[i] == max_mean {
+            n_bins - 1
+        } else {
+            ((log_means[i] - min_mean) / bin_width) as usize
+        };
+        if bin_counts[bin_idx] > 1 {
+            bin_disp_stds[bin_idx] += (log_dispersions[i] - bin_disp_means[bin_idx]).powi(2);
+        }
+    }
+
+    for i in 0..n_bins {
+        if bin_counts[i] > 1 {
+            bin_disp_stds[i] = (bin_disp_stds[i] / (bin_counts[i] - 1) as f64).sqrt();
+        }
+    }
+
+    for i in 0..log_means.len() {
+        let bin_idx = if log_means[i] == max_mean {
+            n_bins - 1
+        } else {
+            ((log_means[i] - min_mean) / bin_width) as usize
+        };
+
+        if bin_disp_stds[bin_idx] > 0.0 {
+            norm_dispersions[i] =
+                (log_dispersions[i] - bin_disp_means[bin_idx]) / bin_disp_stds[bin_idx];
+        }
+    }
+
+    Ok(norm_dispersions)
+}
+
+pub fn normalize_by_batch(
+    log_means: &[f64],
+    log_dispersions: &[f64],
+    batch_col: &polars::prelude::Column,
+    n_bins: usize,
+) -> anyhow::Result<Vec<f64>> {
+    let mut unique_batches = Vec::new();
+    if let DataType::String = batch_col.dtype() {
+        unique_batches = batch_col
+            .str()?
+            .iter()
+            .filter_map(|x| x)
+            .collect::<Vec<&str>>();
+    }
+
+    let mut norm_dispersions = vec![0.0; log_means.len()];
+    for batch in unique_batches {
+        let batch_mask: Vec<bool> = batch_col
+            .str()?
+            .into_iter()
+            .map(|x| x == Some(batch))
+            .collect();
+
+        let batch_size = batch_mask.iter().filter(|&&x| x).count();
+
+        if batch_size > 0 {
+            let batch_norm = normalize_per_bin(
+                &log_means
+                    .iter()
+                    .zip(batch_mask.iter())
+                    .filter(|(_, &mask)| mask)
+                    .map(|(&x, _)| x)
+                    .collect::<Vec<_>>(),
+                &log_dispersions
+                    .iter()
+                    .zip(batch_mask.iter())
+                    .filter(|(_, &mask)| mask)
+                    .map(|(&x, _)| x)
+                    .collect::<Vec<_>>(),
+                n_bins,
+            )?;
+
+            let mut j = 0;
+            for i in 0..log_means.len() {
+                if batch_mask[i] {
+                    norm_dispersions[i] = batch_norm[j];
+                    j += 1;
+                }
+            }
+        }
+    }
+    Ok(norm_dispersions)
+}
+
+pub fn fit_svr(x: &[f64], y: &[f64]) -> anyhow::Result<(Vec<f64>, Vec<f64>)> {
+    let n = x.len();
+    if n == 0 {
+        return Ok((vec![], vec![]));
+    }
+
+    let x_min = x.iter().fold(f64::INFINITY, |a, &b| a.min(b));
+    let x_max = x.iter().fold(f64::NEG_INFINITY, |a, &b| a.max(b));
+    let x_norm: Vec<f64> = x.iter().map(|&xi| (xi - x_min) / (x_max - x_min)).collect();
+
+    let gamma = 1.0 / n as f64;
+    let mut kernel = vec![vec![0.0; n]; n];
+    for i in 0..n {
+        for j in 0..n {
+            let diff = x_norm[i] - x_norm[j];
+            kernel[j][i] = (-gamma * diff.powi(2)).exp();
+        }
+    }
+
+    let lambda = 1.0; // Regularization parameter
+    let mut alpha = vec![0.0; n];
+
+    // Solve (K + λI)α = y using simple iterative method
+    for _ in 0..100 {
+        for i in 0..n {
+            let mut sum = 0.0;
+            for j in 0..n {
+                if i != j {
+                    sum += kernel[j][i] * alpha[j];
+                }
+            }
+            alpha[i] = (y[i] - sum) / (kernel[i][i] + lambda);
+        }
+    }
+
+    let mut y_pred = vec![0.0; n];
+    for i in 0..n {
+        for j in 0..n {
+            y_pred[i] += alpha[j] * kernel[i][j];
+        }
+    }
+
+    let residuals: Vec<f64> = y
+        .iter()
+        .zip(y_pred.iter())
+        .map(|(&yi, &yp)| yi - yp)
+        .collect();
+
+    Ok((residuals, y_pred))
+}
