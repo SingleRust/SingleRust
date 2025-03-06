@@ -5,3 +5,5 @@ data/
 .DS_Store
 resources
 .vscode
+_build/
+_build/*

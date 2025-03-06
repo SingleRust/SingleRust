@@ -3,6 +3,10 @@ pub(crate) mod processing;
 pub(crate) mod statistics;
 pub(crate) mod utils;
 
+pub use processing::get_select_info_obs;
+pub use processing::get_select_info_vars;
+pub use processing::FlavorType;
+pub use processing::HVGParams;
 use std::collections::HashMap;
 use std::ops::Add;
 

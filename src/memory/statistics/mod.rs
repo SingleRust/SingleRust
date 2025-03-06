@@ -216,22 +216,47 @@ impl ComputeMinMax for IMArrayElement {
     }
 }
 
+/// Computes quality control (QC) statistics for an AnnData object's expression matrix.
+///
+/// This function calculates various statistics per gene and per cell, including:
+/// - Number of non-zero expressions
+/// - Sum of expressions
+/// - Variance of expressions
+/// - Standard deviation of expressions
+///
+/// # Type Parameters
+/// - `I`: Integer type for counting non-zero elements (must be unsigned)
+/// - `T`: Floating-point type for numerical computations
+///
+/// # Arguments
+/// * `adata` - Reference to an IMAnnData object containing the expression matrix
+///
+/// # Returns
+/// Returns a `Result` containing a `StatisticsContainer` with the following fields:
+/// - `num_per_cell`: Number of expressed genes per cell
+/// - `num_per_gene`: Number of cells expressing each gene
+/// - `expr_per_gene`: Total expression per gene
+/// - `expr_per_cell`: Total expression per cell
+/// - `variance_per_gene`: Expression variance per gene
+/// - `variance_per_cell`: Expression variance per cell
+/// - `std_dev_per_gene`: Expression standard deviation per gene
+/// - `std_dev_per_cell`: Expression standard deviation per cell
+///
+/// # Type Constraints
+/// - `I`: Must implement PrimInt, Unsigned, Zero, and AddAssign
+/// - `T`: Must implement Float, NumCast, AddAssign, Sum, and From<I>
+///
+/// # Example
+/// ```rust
+/// let qc_stats = compute_qc_variables::<u32, f64>(&adata)?;
+/// println!("Number of genes expressed in first cell: {}", qc_stats.num_per_cell[0]);
+/// ```
 pub fn compute_qc_variables<I, T>(adata: &IMAnnData) -> anyhow::Result<StatisticsContainer<I, T>>
 where
     I: num_traits::PrimInt + num_traits::Unsigned + num_traits::Zero + std::ops::AddAssign,
     T: num_traits::Float + num_traits::NumCast + std::ops::AddAssign + std::iter::Sum + From<I>,
 {
     let x = adata.x();
-
-    /* let n_per_gene = crate::shared::statistics::number::whole(data, Direction::Column)?;
-    let n_per_cell = crate::shared::statistics::number::whole(data, Direction::Row)?;
-    let sum_per_gene = crate::shared::statistics::sum::whole(data, Direction::Column)?;
-    let sum_per_cell = crate::shared::statistics::sum::whole(data, Direction::Row)?;
-    let var_per_gene = crate::shared::statistics::variance::whole(data, Direction::Column)?;
-    let var_per_cell = crate::shared::statistics::variance::whole(data, Direction::Row)?;
-    let std_dev_per_gene = crate::shared::statistics::stddev::whole(data, Direction::Column)?;
-    let std_dev_per_cell = crate::shared::statistics::stddev::whole(data, Direction::Row)?;
-    */
 
     let n_per_gene: Vec<I> = x.nonzero_whole(&single_algebra::Direction::COLUMN)?;
     let n_per_cell: Vec<I> = x.nonzero_whole(&single_algebra::Direction::ROW)?;
