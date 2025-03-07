@@ -1,3 +1,6 @@
+use polars::prelude::{IntoColumn, NamedFrom, NamedFromOwned};
+use polars::series::Series;
+use std::collections::HashMap;
 use std::ops::DerefMut;
 
 use anndata::{backend::DataType, data::DynArray, ArrayData};
@@ -6,8 +9,8 @@ use anyhow::bail;
 use nalgebra_sparse::{CscMatrix, CsrMatrix};
 use ndarray::{Array, Array2, ArrayBase, Dim, IxDynImpl, OwnedRepr};
 use num_traits::{Float, NumCast};
+use polars::prelude::{Column, DataFrame};
 use single_algebra::NumericOps;
-
 use crate::shared::{need_conversion_target_float_type, Precision};
 
 pub fn target_type_float_need_conversion_in_memory(
@@ -368,3 +371,32 @@ where
 
     Ok(ArrayBase::from_shape_vec(shape, new_values)?)
 }
+
+pub fn create_dataframe_from_map<T>(
+    map: &HashMap<String, Vec<T>>
+) -> anyhow::Result<DataFrame>
+where
+    T: Clone, polars::prelude::Series: polars::prelude::NamedFromOwned<std::vec::Vec<T>> {
+    let mut df = DataFrame::default();
+
+    for (group, values) in map {
+        let ser = polars::prelude::Series::from_vec(group.into(), values.clone()).into_column();
+        df.with_column(ser)?;
+    }
+    Ok(df)
+}
+
+pub fn create_string_dataframe_from_map(
+    map: &HashMap<String, Vec<String>>
+) -> anyhow::Result<DataFrame> {
+    let mut df = DataFrame::default();
+
+    for (group, values) in map {
+        let string_slice: Vec<&str> = values.iter().map(|s| s.as_str()).collect();
+        let series = Series::new(group.into(), &string_slice);
+        df.with_column(series)?;
+    }
+
+    Ok(df)
+}
+
