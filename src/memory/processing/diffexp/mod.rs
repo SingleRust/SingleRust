@@ -12,7 +12,6 @@ use single_algebra::statistics::correction::{
 use single_algebra::statistics::effect::calculate_log2_fold_change;
 use single_algebra::statistics::inference::MatrixStatTests;
 use single_algebra::statistics::{Alternative, TTestType, TestMethod, TestResult};
-use smartcore::linalg::basic::arrays::Array;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::fmt::Debug;
@@ -549,4 +548,197 @@ fn store_results(
     )?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use anndata::data::DynArray;
+    use anndata_memory::IMAnnData;
+    use nalgebra_sparse::{CooMatrix, CsrMatrix};
+    use polars::prelude::{DataFrame, NamedFrom, Series};
+
+    // Helper function to create a test AnnData object with synthetic data
+    fn create_test_anndata() -> anyhow::Result<IMAnnData> {
+        // Create a synthetic gene expression matrix with clear patterns
+        // Matrix dimensions: 10 genes × 12 cells (6 in group A, 6 in group B)
+        //
+        // Patterns:
+        // - Genes 0-2: Highly expressed in group A, low in group B
+        // - Genes 3-5: Highly expressed in group B, low in group A
+        // - Genes 6-9: No significant difference between groups
+        let rows: Vec<usize> = vec![
+            // Genes 0-2: High in A, low in B
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2,
+            2, 2, 2, 2, 2, 2, 2, // Genes 3-5: High in B, low in A
+            3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 5, 5, 5, 5, 5,
+            5, 5, 5, 5, 5, 5, 5, // Genes 6-9: No difference
+            6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 8, 8, 8, 8, 8,
+            8, 8, 8, 8, 8, 8, 8, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9,
+        ];
+
+        let cols: Vec<usize> = vec![
+            // Genes 0-2: High in A (cols 0-5), low in B (cols 6-11)
+            0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 0, 1, 2, 3,
+            4, 5, 6, 7, 8, 9, 10, 11,
+            // Genes 3-5: Low in A (cols 0-5), high in B (cols 6-11)
+            0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 0, 1, 2, 3,
+            4, 5, 6, 7, 8, 9, 10, 11, // Genes 6-9: No difference
+            0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 0, 1, 2, 3,
+            4, 5, 6, 7, 8, 9, 10, 11, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11,
+        ];
+
+        let vals: Vec<f32> = vec![
+            // Genes 0-2: High in A (cols 0-5), low in B (cols 6-11)
+            10.0, 10.2, 9.8, 10.5, 10.3, 9.7, 1.0, 1.2, 0.8, 1.1, 0.9, 1.3, 12.0, 11.8, 12.2, 11.5,
+            12.5, 11.7, 1.5, 1.7, 1.3, 1.6, 1.4, 1.8, 11.0, 11.3, 10.7, 11.2, 10.8, 11.4, 1.2, 1.1,
+            1.3, 0.9, 1.4, 1.0, // Genes 3-5: Low in A (cols 0-5), high in B (cols 6-11)
+            1.5, 1.3, 1.7, 1.4, 1.8, 1.2, 8.0, 8.2, 7.8, 8.5, 7.7, 8.3, 1.8, 1.6, 2.0, 1.5, 1.9,
+            1.7, 9.0, 8.8, 9.2, 8.7, 9.3, 8.9, 1.2, 1.4, 1.0, 1.3, 0.9, 1.1, 7.5, 7.7, 7.3, 7.8,
+            7.2, 7.9, // Genes 6-9: No difference
+            5.0, 5.2, 4.8, 5.1, 4.9, 5.3, 5.1, 4.9, 5.3, 4.7, 5.2, 5.0, 4.7, 4.5, 4.9, 4.6, 5.0,
+            4.8, 4.8, 5.0, 4.6, 4.9, 4.7, 5.1, 5.2, 5.0, 5.4, 4.8, 5.3, 5.1, 5.0, 5.2, 4.8, 5.3,
+            4.9, 5.1, 3.0, 3.2, 2.8, 3.1, 2.9, 3.3, 3.2, 2.8, 3.4, 2.9, 3.3, 3.1,
+        ];
+
+        // Create a CooMatrix first, then convert to CsrMatrix
+        let coo = CooMatrix::try_from_triplets(10, 12, rows, cols, vals).unwrap();
+        let csr = CsrMatrix::from(&coo);
+
+        // Create observation annotations (cell metadata)
+        let mut obs_df = DataFrame::default();
+        let names: Vec<String> = vec![
+            "c1".into(),
+            "c2".into(),
+            "c3".into(),
+            "c4".into(),
+            "c5".into(),
+            "c6".into(),
+            "c7".into(),
+            "c8".into(),
+            "c9".into(),
+            "c10".into(),
+        ];
+        let index_col = Series::new("index".into(), names.clone());
+        let group_labels = Series::new(
+            "group".into(),
+            vec!["A", "A", "A", "A", "A", "B", "B", "B", "B", "B"],
+        );
+        obs_df.with_column(index_col)?;
+        obs_df.with_column(group_labels)?;
+
+        // Create variable annotations (gene metadata)
+        let mut var_df = DataFrame::default();
+        let g_names: Vec<String> = vec![
+            "gene0".into(),
+            "gene1".into(),
+            "gene2".into(),
+            "gene3".into(),
+            "gene4".into(),
+            "gene5".into(),
+            "gene6".into(),
+            "gene7".into(),
+            "gene8".into(),
+            "gene9".into(),
+            "gene10".into(),
+            "gene11".into(),
+        ];
+        let gene_names = Series::new("gene_name".into(), g_names.clone());
+        var_df.with_column(gene_names)?;
+        let adata = IMAnnData::new_extended(ArrayData::from(csr), names, g_names, obs_df, var_df)?;
+
+        Ok(adata)
+    }
+
+    // Test 1: Basic functionality test with default parameters
+    #[test]
+    fn test_basic_rank_genes() -> anyhow::Result<()> {
+        let adata = create_test_anndata()?;
+
+        // Run rank_gene_groups with default parameters
+        rank_gene_groups(
+            &adata,
+            "group",                            // groupby
+            Some("B"),                          // reference
+            Some(&["A"]),                       // test only group A
+            None,                               // key_added (default)
+            None,                               // method (default t-test)
+            None,                               // n_genes (default)
+            CorrectionMethod::BejaminiHochberg, // correction method
+            None,                               // compute_logfoldchanges (default true)
+            None,                               // pseudocount (default 1.0)
+        )?;
+
+        // Check that results were stored in uns
+        let uns = adata.uns();
+        let scores = uns.get_data("rank_genes_groups_scores");
+        let pvals = uns.get_data("rank_genes_groups_pvals");
+        let pvals_adj = uns.get_data("rank_genes_groups_pvals_adj");
+        let logfc = uns.get_data("rank_genes_groups_logfoldchanges");
+        let names = uns.get_data("rank_genes_groups_names");
+
+        // Verify that results exist (a minimal check)
+        assert!(scores.is_ok());
+        assert!(pvals.is_ok());
+        assert!(pvals_adj.is_ok());
+        assert!(logfc.is_ok());
+        assert!(names.is_ok());
+
+        Ok(())
+    }
+
+    // Test 2: Validate results match expected patterns
+    #[test]
+    fn test_validate_results() -> anyhow::Result<()> {
+        let adata = create_test_anndata()?;
+
+        // Run with few returned genes to simplify validation
+        rank_gene_groups(
+            &adata,
+            "group",
+            Some("B"),
+            Some(&["A"]),
+            Some("test_result"), // with a specific key
+            Some(TestMethod::TTest(TTestType::Welch)),
+            Some(6), // return top 6 genes
+            CorrectionMethod::BejaminiHochberg,
+            Some(true), // compute log fold changes
+            Some(1.0),  // pseudocount
+        )?;
+
+        // Todo add these checks:
+        // 1. The top 6 genes should include genes 0-5
+        // 2. Genes 0-2 should have positive log fold changes (A > B)
+        // 3. Genes 3-5 should have negative log fold changes (A < B)
+        // 4. P-values should be very small for genes 0-5
+        // 5. The genes should be ranked by adjusted p-value
+
+        // Extract the gene_names for checking
+        let uns = adata.uns();
+        let names_array = uns.get_data("rank_genes_groups_test_result_logfoldchanges");
+
+        // Check the gene names exist
+        assert!(names_array.is_ok());
+        let gene_names = names_array?.get_data()?;
+        let gene_names = match gene_names {
+            Data::ArrayData(array_data) => {
+                match array_data {
+                    ArrayData::DataFrame(df) => {
+                        assert_eq!(df.height(), 6)
+                    },
+                    other => {
+                        panic!("This is not the dataformat expected. It should be an dataframe, found {:?}!", other)
+                    }
+                }
+            }
+            Data::Scalar(_) => {
+                panic!("This is not the data format expected. This should be an dataframe, but found scalar")
+            }
+            Data::Mapping(_) => {
+                panic!("This is not the data format expected. This should be an dataframe, but found mapping")
+            }
+        };
+
+        Ok(())
+    }
 }
