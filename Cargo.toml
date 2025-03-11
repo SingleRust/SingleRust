@@ -1,6 +1,6 @@
 [package]
 name = "single_rust"
-version = "0.2.1-alpha.3"
+version = "0.2.2-alpha.0"
 edition = "2021"
 license-file = "LICENSE.md"
 readme = "README.md"
