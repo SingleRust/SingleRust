@@ -2,49 +2,134 @@
 
 ## Introduction
 
-Welcome to Single Rust 🚀, a pioneering library under development for the Rust programming language, focused on the future of production-grade, high-throughput analysis pipelines for single-cell data. Currently in its foundational phase, Single Rust is poised to leverage Rust's fearless concurrency model, aiming to transition single-cell data analysis from initial prototyping to robust, scalable deployments.
+Welcome to Single Rust 🚀, a pioneering library for the Rust programming language, focused on the future of production-grade, high-throughput analysis pipelines for single-cell data. SingleRust leverages Rust's fearless concurrency model to transition single-cell data analysis from initial prototyping to robust, scalable deployments.
 
-## Current Phase 🚧
+## Current Status 🚧
 
-- **Foundation Laying**: We're in the exciting early stages, laying the groundwork for what will become a comprehensive toolkit for single-cell analysis.
-- **Community Building**: Join us in shaping the future of Single Rust. We're calling on developers, researchers, and enthusiasts to contribute to a project that combines the power of Rust with the intricacy of single-cell data.
+SingleRust is currently in active development, with core functionality already implemented:
 
-## Planned Features 🌟
+- **Matrix Handling**: Efficient processing of sparse matrices common in single-cell data
+- **Quality Control**: Tools for filtering cells and genes based on expression metrics
+- **Normalization**: Implementation of standard normalization procedures
+- **Highly Variable Gene Detection**: Algorithms for identifying genes with high variability
+- **Core Statistics**: Fast computation of essential statistics for single-cell analysis
 
-- **Production-Ready**: Aiming for a library that seamlessly scales analyses from the benchtop to the cloud.
-- **Fearless Concurrency**: Utilizing Rust's concurrency model for safe, efficient parallel data processing.
-- **Efficiency at Scale**: Designed with performance in mind, to handle large datasets with ease.
-- **Open Collaboration**: We believe in the power of community-driven development and encourage contributions.
+## Features 🌟
 
-## Getting Involved 🤝
+### Core Functionality
 
-### Stay Tuned
+- **AnnData Compatible**: Built on the AnnData Rust ecosystem for seamless data interchange
+    - **Note**: There are currently some compatibility limitations with ndarray matrices and rec-arrays (numpy) which are being addressed
+- **Backed and In-Memory Processing**: Support for both in-memory and disk-backed operations
+- **Type Safety**: Leveraging Rust's type system for robust data analysis
 
-As we're laying the initial bricks, the best way to get involved is to watch this space. Star or watch this repo for updates, and prepare your Rust environment to jump in once we're ready for contributions.
+### Performance
 
-### Future Installation Instructions
+- **Fearless Concurrency**: Utilizing Rust's concurrency model for safe, efficient parallel data processing
+- **Memory Efficiency**: Optimal memory usage for handling large datasets
+- **Sparse Representation**: Specialized handling of sparse data structures common in single-cell data
 
-Installation instructions will be provided as soon as the library is ready for early adopters to test and contribute.
+### Analysis Pipeline
 
-### Contributing
+- **Quality Control**: Tools for filtering cells and genes based on expression metrics
+- **Normalization**: Standard normalization procedures for single-cell data
+- **Feature Selection**: Identification of highly variable genes for dimensionality reduction
+- **Differential Expression**: (Coming soon) Tools for identifying differentially expressed genes between cell populations
 
-Want to be part of the journey from the start? We're looking for ideas, feedback, and early contributions to set the direction of Single Rust. While the codebase is under preparation, we encourage you to share your thoughts and suggestions through issues on this GitHub repository.
+## Getting Started 🚀
+
+### Installation
+
+Add SingleRust to your Cargo.toml:
+
+```toml
+[dependencies]
+single_rust = "0.2.1-alpha.1"
+```
+
+### Basic Usage
+
+```rust
+use single_rust::io;
+use single_rust::memory::processing::{normalize_expression, log1p_expression};
+use single_rust::shared::Direction;
+
+// Load an AnnData file into memory
+let adata = io::read_h5ad_memory("path/to/data.h5ad")?;
+
+// Perform log1p normalization
+log1p_expression(&adata.x(), None)?;
+
+// Normalize expression (e.g., to 10,000 counts per cell)
+normalize_expression(&adata.x(), 10_000, &Direction::ROW, None)?;
+
+// Compute highly variable genes
+use single_rust::memory::processing::compute_highly_variable_genes;
+compute_highly_variable_genes(&adata, None)?;
+```
+
+## Differential Expression Analysis 🧪
+
+Differential expression analysis in SingleRust is designed to efficiently identify genes that show significant differences between cell populations. The implementation focuses on:
+
+- **Statistical Robustness**: Implementation of well-established statistical tests
+- **Performance**: Optimized for large single-cell datasets
+- **Flexibility**: Support for various experimental designs and comparison strategies
+
+Already implemented features include:
+- Rank-based tests (Wilcoxon)
+- Parametric tests (t-test)
+- Multiple testing correction
+- Effect size calculation
+
+This module is designed with computational efficiency in mind, focusing on the statistics rather than visualization, allowing it to handle large datasets with low memory footprint.
+
+## Visualization Strategy 📊
+
+Rather than implementing visualization directly in Rust, SingleRust focuses on computation while enabling visualization through data exports:
+
+- **External Tool Integration**: Export functions (in development) will allow seamless integration with Python and R visualization libraries
+- **Familiar Plotting**: Users can continue using their preferred plotting tools in Python and R
+- **Performance Balance**: Computationally intensive analysis in Rust with visualization in languages with mature plotting libraries
+- **Export Formats**: CSV and other standard formats for maximum compatibility
+
+This approach combines Rust's performance benefits for computation with the rich visualization ecosystems of Python and R.
+
+## Roadmap 🗺️
+
+- **Dimensionality Reduction**: PCA, t-SNE, and UMAP implementations
+- **Clustering**: Graph-based and k-means clustering algorithms
+- **Advanced Trajectory Analysis**: Tools for pseudotime and lineage inference
+- **Integration Methods**: Batch correction and dataset integration
+- **Spatial Applications**: Analysis of spatial transcriptomics data
+- **Export Functions**: Tools for exporting analysis results to formats compatible with visualization libraries in Python and R
+- **Full ndarray and rec-array Compatibility**: Complete interoperability with numpy array formats
+
+## Contributing 🤝
+
+We welcome contributions from the community! Whether it's adding new features, improving documentation, or reporting bugs, your help is appreciated.
+
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add some amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
+
+Please check the issue tracker for areas where help is needed.
 
 ## License 📜
 
-Single Rust will be distributed under the BSD 3-Clause License, ensuring it remains free and open for all to use and contribute to.
+SingleRust is distributed under the BSD 3-Clause License, ensuring it remains free and open for all to use and contribute to.
 
 ## Contact 📧
 
-For early inquiries, suggestions, or expressions of interest in contributing, please open an issue on our GitHub repository or reach out directly via [email](single-rust@crimelabs.eu).
+For inquiries, suggestions, or expressions of interest in contributing, please open an issue on our GitHub repository or reach out directly via [email](single-rust@crimelabs.eu).
 
 ## Acknowledgements 🙏
 
 - The Rust Community: For providing an inspiring example of what open-source collaboration can achieve.
-
-Join us in this exciting journey to merge the worlds of Rust and single-cell analysis. Your contribution can help shape the future of biological data analysis! 🌍🔬
-
+- The single-cell bioinformatics community: For developing innovative algorithms and approaches.
 
 ## IMPORTANT 🚨
 
-This library is still in its infancy and very very very much work in progress and at some points highly unoptimized. If you want to contribute...go for it!
+This library is still in active development and highly unoptimized in some areas. If you want to contribute, please go for it! We especially welcome help in performance optimization, test coverage, and documentation.
