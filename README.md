@@ -44,7 +44,7 @@ Add SingleRust to your Cargo.toml:
 
 ```toml
 [dependencies]
-single_rust = "0.2.1-alpha.1"
+single_rust = "0.2.2-alpha.0"
 ```
 
 ### Basic Usage
