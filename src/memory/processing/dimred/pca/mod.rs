@@ -9,7 +9,7 @@ use num_traits::{Float, FromPrimitive, One, Zero};
 use rand::distributions::{Distribution, Uniform};
 use rand::thread_rng;
 use single_algebra::dimred::pca::MaskedSparsePCABuilder;
-use std::fmt::{Debug, Pointer};
+use std::fmt::Debug;
 use std::iter::Sum;
 use std::ops::{AddAssign, Deref, MulAssign, SubAssign};
 
