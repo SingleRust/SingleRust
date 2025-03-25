@@ -5,10 +5,10 @@ use std::ops::DerefMut;
 
 use anndata::{backend::DataType, data::DynArray, ArrayData};
 use anndata_memory::IMArrayElement;
-use anyhow::bail;
+use anyhow::{anyhow, bail};
 use nalgebra_sparse::{CscMatrix, CsrMatrix};
-use ndarray::{Array, Array2, ArrayBase, Dim, IxDynImpl, OwnedRepr};
-use num_traits::{Float, NumCast};
+use ndarray::{Array, Array1, Array2, ArrayBase, Dim, IxDynImpl, OwnedRepr};
+use num_traits::{Float, Num, NumCast};
 use polars::prelude::{Column, DataFrame};
 use single_algebra::NumericOps;
 use crate::shared::{need_conversion_target_float_type, Precision};
@@ -398,5 +398,33 @@ pub fn create_string_dataframe_from_map(
     }
 
     Ok(df)
+}
+
+pub fn arr2_conversion<M, T>(array2: Array2<M>) -> anyhow::Result<Array2<T>>
+where
+    M: Num + Copy + num_traits::ToPrimitive,
+    T: Num + NumCast + Clone,
+{
+    let mut result = Array2::zeros(array2.dim());
+
+    for (target, &source) in result.iter_mut().zip(array2.iter()) {
+        *target = T::from(source).ok_or_else(|| anyhow!("Failed to convert value"))?;
+    }
+
+    Ok(result)
+}
+
+pub fn arr1_conversion<M, T>(array1: Array1<M>) -> anyhow::Result<Array1<T>>
+where
+    M: Num + Copy + num_traits::ToPrimitive,
+    T: Num + NumCast + Clone,
+{
+    let mut result = Array1::zeros(array1.dim());
+
+    for (target, &source) in result.iter_mut().zip(array1.iter()) {
+        *target = T::from(source).ok_or_else(|| anyhow!("Failed to convert value"))?;
+    }
+
+    Ok(result)
 }
 

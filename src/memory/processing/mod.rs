@@ -1,7 +1,7 @@
 pub mod filtering;
 mod transformation;
 mod hvg;
-
+mod dimred;
 mod diffexp;
 
 pub use transformation::normalize_expression;
