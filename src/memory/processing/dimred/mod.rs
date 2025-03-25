@@ -1,4 +1,4 @@
-mod pca;
+pub mod pca;
 
 pub enum FeatureSelectionMethod {
     FullFeatures,
