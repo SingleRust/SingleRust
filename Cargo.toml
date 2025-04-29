@@ -1,14 +1,13 @@
 [package]
 name = "single_rust"
-version = "0.2.3-alpha.2"
+version = "0.2.3-alpha.3"
 edition = "2021"
 license-file = "LICENSE.md"
 readme = "README.md"
 description = "Single-cell analysis in Rust"
 categories = ["science"]
 repository = "https://github.com/SingleRust/SingleRust"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+homepage = "https://singlerust.com"
 
 [features]
 lapack = ["single_algebra/lapack"]
@@ -42,10 +41,8 @@ ndarray-stats = "0.6.0"
 noisy_float = "0.2.0"
 rand = "0.8.5"
 plotters = "0.3.6"
-smartcore = { version = "0.4.0", features = ["ndarray-bindings"] }
-nshare = { version = "0.10.0", features = ["ndarray", "nalgebra"] }
 nalgebra = { version = "0.33.2", features = ["serde-serialize", "rayon"] }
-single_algebra = { version = "0.2.3-alpha.0", features = ["statistics"] }
+single_algebra = { path = "../single-algebra", features = ["statistics"] }
 simba = {version = "0.9.0", optional = true}
 #ndarray-linalg = {version = "0.16.0"}
 
