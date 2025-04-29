@@ -5,27 +5,17 @@ use anndata::ArrayData;
 use anndata_memory::IMArrayElement;
 use anyhow::anyhow;
 use ndarray::{Array1, Array2};
-use num_traits::{Float, FromPrimitive, One, Zero};
-use rand::distributions::{Distribution, Uniform};
-use rand::thread_rng;
-use single_algebra::dimred::pca::MaskedSparsePCABuilder;
+use rand::distr::Distribution;
+use rand::distr::Uniform;
+use rand::rng;
+use single_algebra::dimred::pca::{MaskedSparsePCABuilder, SvdFloat};
+use single_utilities::traits::FloatOpsTS;
 use std::fmt::Debug;
-use std::iter::Sum;
-use std::ops::{AddAssign, Deref, MulAssign, SubAssign};
+use std::ops::Deref;
 
 pub struct PCAResult<T>
 where
-    T: Float
-        + FromPrimitive
-        + Debug
-        + Send
-        + Sync
-        + Zero
-        + One
-        + AddAssign
-        + SubAssign
-        + MulAssign
-        + Sum,
+    T: FloatOpsTS,
 {
     transformed: Array2<T>,
     explained_variance_ratio: Array1<T>,
@@ -43,17 +33,7 @@ pub fn run_pca_sparse_masked<T>(
     max_iter: Option<usize>,
 ) -> anyhow::Result<PCAResult<T>>
 where
-    T: Float
-        + FromPrimitive
-        + Debug
-        + Send
-        + Sync
-        + Zero
-        + One
-        + AddAssign
-        + SubAssign
-        + MulAssign
-        + Sum,
+    T: FloatOpsTS + SvdFloat,
 {
     let feature_selection_method =
         feature_selection_method.unwrap_or(FeatureSelectionMethod::RandomSelection(1000));
@@ -97,10 +77,10 @@ where
                     let cumulative_explained_variance_ratio: Array1<T> = arr1_conversion(cumulative_explained_variance_ratio)?;
                     let feature_importance: Array2<T> = arr2_conversion(feature_importance)?;
                     let res = PCAResult {
-                        transformed: transformed,
-                        explained_variance_ratio: explained_variance_ratio,
-                        cumulative_explained_variance_ratio: cumulative_explained_variance_ratio,
-                        feature_importance: feature_importance,
+                        transformed,
+                        explained_variance_ratio,
+                        cumulative_explained_variance_ratio,
+                        feature_importance,
                     };
                     Ok(res)
                 }
@@ -139,8 +119,8 @@ where
 }
 
 fn generate_random_mask(n_genes: usize, num_random_selection: usize) -> Vec<bool> {
-    let mut rng = thread_rng();
-    let uniform = Uniform::new(0, n_genes);
+    let mut rng = rng();
+    let uniform = Uniform::new(0, n_genes).unwrap();
     let mut vec = vec![false; num_random_selection];
     for _ in 0..num_random_selection {
         let v = uniform.sample(&mut rng);
