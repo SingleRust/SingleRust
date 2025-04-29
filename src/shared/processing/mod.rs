@@ -263,3 +263,70 @@ pub fn fit_svr(x: &[f64], y: &[f64]) -> anyhow::Result<(Vec<f64>, Vec<f64>)> {
 
     Ok((residuals, y_pred))
 }
+
+
+pub fn get_mean_bins(
+    log_means: &[f64],
+    n_bins: usize,
+) -> anyhow::Result<(Vec<usize>, Vec<usize>)> {
+    let min_mean = log_means.iter().fold(f64::INFINITY, |a, &b| a.min(b));
+    let max_mean = log_means.iter().fold(f64::NEG_INFINITY, |a, &b| a.max(b));
+
+    let bin_width = if (max_mean - min_mean).abs() < f64::EPSILON {
+        1.0
+    } else {
+        (max_mean - min_mean) / n_bins as f64
+    };
+
+    let mut bin_indices = vec![0; log_means.len()];
+    let mut mean_bins = vec![0; n_bins];
+
+    for (i, &mean) in log_means.iter().enumerate() {
+        let mut bin_idx = ((mean - min_mean) / bin_width).floor() as usize;
+        if bin_idx >= n_bins {
+            bin_idx = n_bins - 1;
+        }
+        bin_indices[i] = bin_idx;
+        mean_bins[bin_idx] += 1;
+    }
+
+    Ok((mean_bins, bin_indices))
+}
+
+pub fn calculate_dispersion_stats(
+    log_dispersions: &[f64],
+    bin_indices: &[usize],
+    mean_bins: &[usize],
+) -> anyhow::Result<(Vec<f64>, Vec<f64>)> {
+    let n_bins = mean_bins.len();
+    let mut bin_means = vec![0.0; n_bins];
+    let mut bin_stds = vec![0.0; n_bins];
+    let mut bin_sums = vec![0.0; n_bins];
+    let mut bin_sum_squares = vec![0.0; n_bins];
+
+    for (i, &bin_idx) in bin_indices.iter().enumerate() {
+        let disp = log_dispersions[i];
+        if !disp.is_nan() {
+            bin_sums[bin_idx] += disp;
+            bin_sum_squares[bin_idx] += disp * disp;
+        }
+    }
+
+    for bin_idx in 0..n_bins {
+        let count = mean_bins[bin_idx] as f64;
+        if count > 0.0 {
+            bin_means[bin_idx] = bin_sums[bin_idx] / count;
+
+            if count > 1.0 {
+                bin_stds[bin_idx] = ((bin_sum_squares[bin_idx] - bin_sums[bin_idx].powi(2) / count) / (count - 1.0)).sqrt();
+            } else {
+                bin_stds[bin_idx] = f64::NAN;
+            }
+        } else {
+            bin_means[bin_idx] = f64::NAN;
+            bin_stds[bin_idx] = f64::NAN;
+        }
+    }
+
+    Ok((bin_means, bin_stds))
+}

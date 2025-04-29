@@ -86,7 +86,7 @@ where
                         .n_components(n_components)
                         .random_seed(random_seed)
                         .build();
-                    masked_pca.fit(csr, max_iter)?;
+                    masked_pca.fit(csr)?;
                     let transformed = masked_pca.transform(csr)?;
                     let explained_variance_ratio = masked_pca.explained_variance_ratio()?;
                     let cumulative_explained_variance_ratio = masked_pca.cumulative_explained_variance_ratio()?;
@@ -113,7 +113,7 @@ where
                         .n_components(n_components)
                         .random_seed(random_seed)
                         .build();
-                    masked_pca.fit(csr, max_iter)?;
+                    masked_pca.fit(csr)?;
                     let transformed = masked_pca.transform(csr)?;
                     let explained_variance_ratio = masked_pca.explained_variance_ratio()?;
                     let cumulative_explained_variance_ratio = masked_pca.cumulative_explained_variance_ratio()?;
