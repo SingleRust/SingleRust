@@ -5,17 +5,15 @@ use anndata_memory::{IMAnnData, IMElement};
 use nalgebra_sparse::CsrMatrix;
 use num_traits::{Float, FromPrimitive, NumCast};
 use polars::datatypes::DataType;
-use single_algebra::statistics::correction::{
-    benjamini_hochberg_correction, benjamini_yekutieli_correction, bonferroni_correction,
-    hochberg_correction, holm_bonferroni_correction, storey_qvalues,
-};
-use single_algebra::statistics::effect::calculate_log2_fold_change;
-use single_algebra::statistics::inference::MatrixStatTests;
-use single_algebra::statistics::{Alternative, TTestType, TestMethod, TestResult};
+use single_statistics::testing::{Alternative, TTestType, TestMethod, TestResult};
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::ops::Deref;
+use single_statistics::testing::correction::{benjamini_hochberg_correction, benjamini_yekutieli_correction, bonferroni_correction, hochberg_correction, holm_bonferroni_correction, storey_qvalues};
+use single_statistics::testing::effect::calculate_log2_fold_change;
+use single_statistics::testing::inference::MatrixStatTests;
+use single_utilities::traits::FloatOpsTS;
 
 #[derive(Clone)]
 pub enum CorrectionMethod {
@@ -129,7 +127,7 @@ fn run_differential_expression<T>(
     var_names: &[String],
 ) -> anyhow::Result<DifferentialExpressionResults>
 where
-    T: Float + NumCast + FromPrimitive + Send + Sync + Debug,
+    T: FloatOpsTS,
     CsrMatrix<T>: MatrixStatTests<T>,
 {
     let mut scores_map: HashMap<String, Vec<f64>> = HashMap::new();
@@ -201,7 +199,7 @@ fn run_tests_for_group<T>(
     var_names: &[String],
 ) -> anyhow::Result<GroupTestResults>
 where
-    T: Float + NumCast + FromPrimitive + Send + Sync + Debug,
+    T: FloatOpsTS,
     CsrMatrix<T>: MatrixStatTests<T>,
 {
     let test_results = perform_test(csr_matrix, group_indices, reference_indices, method)?;
@@ -422,7 +420,7 @@ fn perform_test<T>(
     method: TestMethod,
 ) -> anyhow::Result<Vec<TestResult>>
 where
-    T: Float + NumCast + FromPrimitive + Send + Sync + std::fmt::Debug,
+    T: FloatOpsTS,
     CsrMatrix<T>: MatrixStatTests<T>,
 {
     if group1_indices.is_empty() || group2_indices.is_empty() {
@@ -553,7 +551,6 @@ fn store_results(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use anndata::data::DynArray;
     use anndata_memory::IMAnnData;
     use nalgebra_sparse::{CooMatrix, CsrMatrix};
     use polars::prelude::{DataFrame, NamedFrom, Series};
@@ -721,16 +718,14 @@ mod tests {
         assert!(names_array.is_ok());
         let gene_names = names_array?.get_data()?;
         let gene_names = match gene_names {
-            Data::ArrayData(array_data) => {
-                match array_data {
-                    ArrayData::DataFrame(df) => {
-                        assert_eq!(df.height(), 6)
-                    },
-                    other => {
-                        panic!("This is not the dataformat expected. It should be an dataframe, found {:?}!", other)
-                    }
+            Data::ArrayData(array_data) => match array_data {
+                ArrayData::DataFrame(df) => {
+                    assert_eq!(df.height(), 6)
                 }
-            }
+                other => {
+                    panic!("This is not the dataformat expected. It should be an dataframe, found {:?}!", other)
+                }
+            },
             Data::Scalar(_) => {
                 panic!("This is not the data format expected. This should be an dataframe, but found scalar")
             }

@@ -1,13 +1,12 @@
 use std::ops::DerefMut;
 
+use crate::shared::{statistics::ComputeSum, Precision};
 use anndata_memory::IMArrayElement;
 use anyhow::bail;
-use num_traits::Float;
-use single_algebra::Direction;
 use single_algebra::Log1P;
 use single_algebra::Normalize;
-
-use crate::shared::{statistics::ComputeSum, Precision};
+use single_utilities::traits::FloatOpsTS;
+use single_utilities::types::Direction;
 
 pub fn normalize_expression(
     matrix: &IMArrayElement,
@@ -154,7 +153,7 @@ fn normalize_with_type<T>(
     direction: &Direction,
 ) -> anyhow::Result<()>
 where
-    T: Float + std::ops::AddAssign + std::iter::Sum + num_traits::NumCast,
+    T: FloatOpsTS,
 {
     let sums: Vec<T> = matrix.sum_whole(direction)?;
 

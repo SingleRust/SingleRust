@@ -3,42 +3,42 @@ use polars::series::Series;
 use std::collections::HashMap;
 use std::ops::DerefMut;
 
+use crate::shared::{need_conversion_target_float_type, Precision};
 use anndata::{backend::DataType, data::DynArray, ArrayData};
 use anndata_memory::IMArrayElement;
 use anyhow::{anyhow, bail};
 use nalgebra_sparse::{CscMatrix, CsrMatrix};
-use ndarray::{Array, Array1, Array2, ArrayBase, Dim, IxDynImpl, OwnedRepr};
+use ndarray::{Array1, Array2, ArrayBase, Dim, IxDynImpl, OwnedRepr};
 use num_traits::{Float, Num, NumCast};
-use polars::prelude::{Column, DataFrame};
-use single_algebra::NumericOps;
-use crate::shared::{need_conversion_target_float_type, Precision};
+use polars::prelude::DataFrame;
+use single_utilities::traits::NumericOps;
 
 pub fn target_type_float_need_conversion_in_memory(
     matrix_datatype: &DataType,
 ) -> anyhow::Result<bool> {
     match matrix_datatype {
-        anndata::backend::DataType::Array(scalar_type) => {
+        DataType::Array(scalar_type) => {
             need_conversion_target_float_type(scalar_type)
         }
-        anndata::backend::DataType::CsrMatrix(scalar_type) => {
+        DataType::CsrMatrix(scalar_type) => {
             need_conversion_target_float_type(scalar_type)
         }
-        anndata::backend::DataType::CscMatrix(scalar_type) => {
+        DataType::CscMatrix(scalar_type) => {
             need_conversion_target_float_type(scalar_type)
         }
-        anndata::backend::DataType::DataFrame => {
+        DataType::DataFrame => {
             bail!("Cannot use a matrix of type <DataFrame> in the normalization procedure.")
         }
-        anndata::backend::DataType::Mapping => {
+        DataType::Mapping => {
             bail!("Cannot use a matrix of type <Mapping> in the normalization procedure.")
         }
-        anndata::backend::DataType::Scalar(scalar_type) => {
+        DataType::Scalar(scalar_type) => {
             need_conversion_target_float_type(scalar_type)
         }
-        anndata::backend::DataType::Categorical => {
+        DataType::Categorical => {
             bail!("Cannot use a matrix of type <Categorical> in the normalization procedure.")
         }
-        anndata::backend::DataType::NullableArray => {
+        DataType::NullableArray => {
             bail!("Cannot use a matrix of type <NullableArray> in the normalization procedure.")
         }
     }
@@ -145,10 +145,10 @@ pub fn convert_to_float_if_non_float_type(
                     Ok(ArrayData::from(converted))
                 },
                 (DynArray::F64(array_base), Precision::Double) => Ok(ArrayData::from(array_base)),
-                (DynArray::Bool(array_base), Precision::Single) => bail!("ArrayBase with type: <bool> cannot be converted into float<f32>. Please convert it manually before."),
-                (DynArray::Bool(array_base), Precision::Double) => bail!("ArrayBase with type: <bool> cannot be converted into float<f64>. Please convert it manually before."),
-                (DynArray::String(array_base), Precision::Single) => bail!("ArrayBase with type: <string> cannot be converted into float<f32>. Please convert it manually before."),
-                (DynArray::String(array_base), Precision::Double) => bail!("ArrayBase with type: <string> cannot be converted into float<f64>. Please convert it manually before."),
+                (DynArray::Bool(_), Precision::Single) => bail!("ArrayBase with type: <bool> cannot be converted into float<f32>. Please convert it manually before."),
+                (DynArray::Bool(_), Precision::Double) => bail!("ArrayBase with type: <bool> cannot be converted into float<f64>. Please convert it manually before."),
+                (DynArray::String(_), Precision::Single) => bail!("ArrayBase with type: <string> cannot be converted into float<f32>. Please convert it manually before."),
+                (DynArray::String(_), Precision::Double) => bail!("ArrayBase with type: <string> cannot be converted into float<f64>. Please convert it manually before."),
             }
         },
         ArrayData::CsrMatrix(dyn_csr_matrix) => match (dyn_csr_matrix, precision) {
@@ -372,11 +372,11 @@ where
     Ok(ArrayBase::from_shape_vec(shape, new_values)?)
 }
 
-pub fn create_dataframe_from_map<T>(
-    map: &HashMap<String, Vec<T>>
-) -> anyhow::Result<DataFrame>
+pub fn create_dataframe_from_map<T>(map: &HashMap<String, Vec<T>>) -> anyhow::Result<DataFrame>
 where
-    T: Clone, polars::prelude::Series: polars::prelude::NamedFromOwned<std::vec::Vec<T>> {
+    T: Clone,
+    Series: NamedFromOwned<Vec<T>>,
+{
     let mut df = DataFrame::default();
 
     for (group, values) in map {
@@ -387,7 +387,7 @@ where
 }
 
 pub fn create_string_dataframe_from_map(
-    map: &HashMap<String, Vec<String>>
+    map: &HashMap<String, Vec<String>>,
 ) -> anyhow::Result<DataFrame> {
     let mut df = DataFrame::default();
 
@@ -427,5 +427,3 @@ where
 
     Ok(result)
 }
-
-

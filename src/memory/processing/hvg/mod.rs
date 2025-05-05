@@ -3,7 +3,7 @@ use crate::{ComputeSum, ComputeVariance};
 use anndata_memory::{IMAnnData, IMArrayElement};
 use nalgebra::min;
 use polars::prelude::Column;
-use single_algebra::Direction;
+use single_utilities::types::Direction;
 
 pub fn compute_highly_variable_genes(
     adata: &IMAnnData,

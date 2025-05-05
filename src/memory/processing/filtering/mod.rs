@@ -1,6 +1,5 @@
 use anndata_memory::IMAnnData;
-use single_algebra::Direction;
-
+use single_utilities::types::Direction;
 use crate::shared::statistics::{ComputeNonZero, ComputeSum};
 
 /// Filter cells based on various quality control metrics.

@@ -1,4 +1,3 @@
-pub(crate) mod plot;
 pub(crate) mod processing;
 pub(crate) mod statistics;
 pub(crate) mod utils;
@@ -8,16 +7,16 @@ pub use processing::get_select_info_vars;
 pub use processing::FlavorType;
 pub use processing::HVGParams;
 use std::collections::HashMap;
-use std::ops::Add;
 
-use anndata::backend::ScalarType;
 use anndata::data::DynCsrMatrix;
 use anndata::data::{DynArray, DynCscMatrix, SelectInfoElem};
 use anndata::{data::Shape, ArrayData, HasShape};
+use anndata::backend::ScalarType;
 use anyhow::{anyhow, bail};
 use nalgebra_sparse::{CscMatrix, CsrMatrix};
 use ndarray::{Array2, ArrayD, Ix2};
-use num_traits::{Bounded, NumCast, One, Zero};
+use num_traits::{NumCast, Zero};
+use single_utilities::traits::NumericOps;
 use utils::select_info_elem_to_indices;
 
 pub enum FeatureSelection {
@@ -38,29 +37,6 @@ impl Clone for ComputationMode {
         match self {
             Self::Chunked(arg0) => Self::Chunked(*arg0),
             Self::Whole => Self::Whole,
-        }
-    }
-}
-
-pub enum Direction {
-    Row = 0,
-    Column = 1,
-}
-
-impl Clone for Direction {
-    fn clone(&self) -> Self {
-        match self {
-            Self::Row => Self::Row,
-            Self::Column => Self::Column,
-        }
-    }
-}
-
-impl Direction {
-    pub fn is_row(&self) -> bool {
-        match self {
-            Self::Row => true,
-            Self::Column => false,
         }
     }
 }
@@ -111,26 +87,6 @@ impl FlexValue {
         !self.is_none()
     }
 }
-
-trait NumericOps:
-    Zero + One + NumCast + Copy + std::ops::AddAssign + PartialOrd + Bounded + Add<Output = Self>
-{
-}
-impl<
-        T: Zero
-            + One
-            + NumCast
-            + Copy
-            + std::ops::AddAssign
-            + PartialOrd
-            + Bounded
-            + Add<Output = Self>,
-    > NumericOps for T
-{
-}
-
-trait FloatOps: NumericOps + num_traits::Float {}
-impl<T: NumericOps + num_traits::Float> FloatOps for T {}
 
 #[macro_export]
 macro_rules! match_dyn_csr_matrix {
@@ -499,20 +455,20 @@ pub fn convert_to_array_f64_selected(
 
 pub fn need_conversion_target_float_type(scalar_type: &ScalarType) -> anyhow::Result<bool> {
     match scalar_type {
-        anndata::backend::ScalarType::I8 => Ok(true),
-        anndata::backend::ScalarType::I16 => Ok(true),
-        anndata::backend::ScalarType::I32 => Ok(true),
-        anndata::backend::ScalarType::I64 => Ok(true),
-        anndata::backend::ScalarType::U8 => Ok(true),
-        anndata::backend::ScalarType::U16 => Ok(true),
-        anndata::backend::ScalarType::U32 => Ok(true),
-        anndata::backend::ScalarType::U64 => Ok(true),
-        anndata::backend::ScalarType::F32 => Ok(false),
-        anndata::backend::ScalarType::F64 => Ok(false),
-        anndata::backend::ScalarType::Bool => {
+        ScalarType::I8 => Ok(true),
+        ScalarType::I16 => Ok(true),
+        ScalarType::I32 => Ok(true),
+        ScalarType::I64 => Ok(true),
+        ScalarType::U8 => Ok(true),
+        ScalarType::U16 => Ok(true),
+        ScalarType::U32 => Ok(true),
+        ScalarType::U64 => Ok(true),
+        ScalarType::F32 => Ok(false),
+        ScalarType::F64 => Ok(false),
+        ScalarType::Bool => {
             bail!("Cannot use a Scalar of type <Bool> in the normalization procedure.")
         }
-        anndata::backend::ScalarType::String => {
+        ScalarType::String => {
             bail!("Cannot use a Scalar of type <String> in the normalization procedure.")
         }
     }

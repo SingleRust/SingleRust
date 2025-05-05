@@ -5,7 +5,8 @@ use anndata_memory::{IMAnnData, IMArrayElement};
 use anyhow::bail;
 use num_traits::{PrimInt, Unsigned, Zero};
 use single_algebra::sparse::{MatrixMinMax, MatrixNonZero, MatrixSum, MatrixVariance};
-use single_algebra::Direction;
+use single_utilities::traits::NumericOps;
+use single_utilities::types::Direction;
 use structs::StatisticsContainer;
 
 use crate::{
@@ -14,23 +15,23 @@ use crate::{
 };
 
 impl ComputeNonZero for IMArrayElement {
-    fn nonzero_whole<T>(&self, direction: &single_algebra::Direction) -> anyhow::Result<Vec<T>>
+    fn nonzero_whole<T>(&self, direction: &Direction) -> anyhow::Result<Vec<T>>
     where
         T: num_traits::PrimInt + num_traits::Unsigned + num_traits::Zero + std::ops::AddAssign,
     {
         let read_guard = self.0.read_inner();
         let data = read_guard.deref();
         match direction {
-            single_algebra::Direction::COLUMN => {
+            Direction::COLUMN => {
                 match_array_data_apply_function!(data, nonzero_col)
             }
-            single_algebra::Direction::ROW => match_array_data_apply_function!(data, nonzero_row),
+            Direction::ROW => match_array_data_apply_function!(data, nonzero_row),
         }
     }
 
     fn nonzero_chunk<T>(
         &self,
-        direction: &single_algebra::Direction,
+        direction: &Direction,
         reference: &mut [T],
     ) -> anyhow::Result<()>
     where
@@ -39,10 +40,10 @@ impl ComputeNonZero for IMArrayElement {
         let read_guard = self.0.read_inner();
         let data = read_guard.deref();
         match direction {
-            single_algebra::Direction::COLUMN => {
+            Direction::COLUMN => {
                 match_array_data_apply_function!(data, nonzero_col_chunk, reference)
             }
-            single_algebra::Direction::ROW => {
+            Direction::ROW => {
                 match_array_data_apply_function!(data, nonzero_row_chunk, reference)
             }
         }
@@ -57,10 +58,10 @@ impl ComputeNonZero for IMArrayElement {
     //     let read_guard = self.0.read_inner();
     //     let data = read_guard.deref();
     //     match direction {
-    //         single_algebra::Direction::COLUMN => {
+    //         Direction::COLUMN => {
     //             match_array_data_apply_function_with_generics!(data, simba_nonzero_col, [T])
     //         }
-    //         single_algebra::Direction::ROW => {
+    //         Direction::ROW => {
     //             match_array_data_apply_function_with_generics!(data, simba_nonzero_row, [T])
     //         }
     //     }
@@ -68,23 +69,23 @@ impl ComputeNonZero for IMArrayElement {
 }
 
 impl ComputeSum for IMArrayElement {
-    fn sum_whole<T>(&self, direction: &single_algebra::Direction) -> anyhow::Result<Vec<T>>
+    fn sum_whole<T>(&self, direction: &Direction) -> anyhow::Result<Vec<T>>
     where
         T: num_traits::Float + num_traits::NumCast + std::ops::AddAssign + std::iter::Sum,
     {
         let read_guard = self.0.read_inner();
         let data = read_guard.deref();
         match direction {
-            single_algebra::Direction::COLUMN => {
+            Direction::COLUMN => {
                 match_array_data_apply_function!(data, sum_col)
             }
-            single_algebra::Direction::ROW => match_array_data_apply_function!(data, sum_row),
+            Direction::ROW => match_array_data_apply_function!(data, sum_row),
         }
     }
 
     fn sum_chunk<T>(
         &self,
-        direction: &single_algebra::Direction,
+        direction: &Direction,
         reference: &mut [T],
     ) -> anyhow::Result<()>
     where
@@ -93,10 +94,10 @@ impl ComputeSum for IMArrayElement {
         let read_guard = self.0.read_inner();
         let data = read_guard.deref();
         match direction {
-            single_algebra::Direction::COLUMN => {
+            Direction::COLUMN => {
                 match_array_data_apply_function!(data, sum_col_chunk, reference)
             }
-            single_algebra::Direction::ROW => {
+            Direction::ROW => {
                 match_array_data_apply_function!(data, sum_row_chunk, reference)
             }
         }
@@ -104,7 +105,7 @@ impl ComputeSum for IMArrayElement {
 }
 
 impl ComputeVariance for IMArrayElement {
-    fn variance_whole<I, T>(&self, direction: &single_algebra::Direction) -> anyhow::Result<Vec<T>>
+    fn variance_whole<I, T>(&self, direction: &Direction) -> anyhow::Result<Vec<T>>
     where
         I: num_traits::PrimInt
             + num_traits::Unsigned
@@ -118,10 +119,10 @@ impl ComputeVariance for IMArrayElement {
         let data = read_guard.deref();
 
         match direction {
-            single_algebra::Direction::COLUMN => {
+            Direction::COLUMN => {
                 match_array_data_apply_function_with_generics!(data, var_col, [I, T])
             }
-            single_algebra::Direction::ROW => {
+            Direction::ROW => {
                 match_array_data_apply_function_with_generics!(data, var_row, [I, T])
             }
         }
@@ -129,7 +130,7 @@ impl ComputeVariance for IMArrayElement {
 
     fn variance_chunk<I, T>(
         &self,
-        direction: &single_algebra::Direction,
+        direction: &Direction,
         reference: &mut [T],
     ) -> anyhow::Result<()>
     where
@@ -145,7 +146,7 @@ impl ComputeVariance for IMArrayElement {
         let data = read_guard.deref();
 
         match direction {
-            single_algebra::Direction::COLUMN => {
+            Direction::COLUMN => {
                 match_array_data_apply_function_with_generics!(
                     data,
                     var_col_chunk,
@@ -153,7 +154,7 @@ impl ComputeVariance for IMArrayElement {
                     reference
                 )
             }
-            single_algebra::Direction::ROW => {
+            Direction::ROW => {
                 match_array_data_apply_function_with_generics!(
                     data,
                     var_row_chunk,
@@ -168,44 +169,44 @@ impl ComputeVariance for IMArrayElement {
 impl ComputeMinMax for IMArrayElement {
     fn min_max_whole<T>(
         &self,
-        direction: &single_algebra::Direction,
+        direction: &Direction,
     ) -> anyhow::Result<(Vec<T>, Vec<T>)>
     where
-        T: num_traits::NumCast + Copy + PartialOrd + single_algebra::NumericOps,
+        T: num_traits::NumCast + Copy + PartialOrd + NumericOps,
     {
         let read_guard = self.0.read_inner(); // establish a read guard
 
         let data = read_guard.deref();
 
         match direction {
-            single_algebra::Direction::COLUMN => {
+            Direction::COLUMN => {
                 match_array_data_apply_function!(data, min_max_col)
             }
-            single_algebra::Direction::ROW => match_array_data_apply_function!(data, min_max_row),
+            Direction::ROW => match_array_data_apply_function!(data, min_max_row),
         }
     }
 
     fn min_max_chunk<T>(
         &self,
-        direction: &single_algebra::Direction,
+        direction: &Direction,
         reference: (&mut Vec<T>, &mut Vec<T>),
     ) -> anyhow::Result<()>
     where
-        T: num_traits::NumCast + Copy + PartialOrd + single_algebra::NumericOps,
+        T: num_traits::NumCast + Copy + PartialOrd + NumericOps,
     {
         let read_guard = self.0.read_inner(); // establish a read guard
 
         let data = read_guard.deref();
 
         match direction {
-            single_algebra::Direction::COLUMN => {
+            Direction::COLUMN => {
                 match_array_data_apply_function!(
                     data,
                     min_max_col_chunk,
                     (reference.0, reference.1)
                 )
             }
-            single_algebra::Direction::ROW => {
+            Direction::ROW => {
                 match_array_data_apply_function!(
                     data,
                     min_max_row_chunk,
@@ -216,41 +217,6 @@ impl ComputeMinMax for IMArrayElement {
     }
 }
 
-/// Computes quality control (QC) statistics for an AnnData object's expression matrix.
-///
-/// This function calculates various statistics per gene and per cell, including:
-/// - Number of non-zero expressions
-/// - Sum of expressions
-/// - Variance of expressions
-/// - Standard deviation of expressions
-///
-/// # Type Parameters
-/// - `I`: Integer type for counting non-zero elements (must be unsigned)
-/// - `T`: Floating-point type for numerical computations
-///
-/// # Arguments
-/// * `adata` - Reference to an IMAnnData object containing the expression matrix
-///
-/// # Returns
-/// Returns a `Result` containing a `StatisticsContainer` with the following fields:
-/// - `num_per_cell`: Number of expressed genes per cell
-/// - `num_per_gene`: Number of cells expressing each gene
-/// - `expr_per_gene`: Total expression per gene
-/// - `expr_per_cell`: Total expression per cell
-/// - `variance_per_gene`: Expression variance per gene
-/// - `variance_per_cell`: Expression variance per cell
-/// - `std_dev_per_gene`: Expression standard deviation per gene
-/// - `std_dev_per_cell`: Expression standard deviation per cell
-///
-/// # Type Constraints
-/// - `I`: Must implement PrimInt, Unsigned, Zero, and AddAssign
-/// - `T`: Must implement Float, NumCast, AddAssign, Sum, and From<I>
-///
-/// # Example
-/// ```rust
-/// let qc_stats = compute_qc_variables::<u32, f64>(&adata)?;
-/// println!("Number of genes expressed in first cell: {}", qc_stats.num_per_cell[0]);
-/// ```
 pub fn compute_qc_variables<I, T>(adata: &IMAnnData) -> anyhow::Result<StatisticsContainer<I, T>>
 where
     I: num_traits::PrimInt + num_traits::Unsigned + num_traits::Zero + std::ops::AddAssign,
@@ -258,12 +224,12 @@ where
 {
     let x = adata.x();
 
-    let n_per_gene: Vec<I> = x.nonzero_whole(&single_algebra::Direction::COLUMN)?;
-    let n_per_cell: Vec<I> = x.nonzero_whole(&single_algebra::Direction::ROW)?;
-    let sum_per_gene: Vec<T> = x.sum_whole(&single_algebra::Direction::COLUMN)?;
-    let sum_per_cell: Vec<T> = x.sum_whole(&single_algebra::Direction::ROW)?;
-    let var_per_gene: Vec<T> = x.variance_whole::<I, T>(&single_algebra::Direction::COLUMN)?;
-    let var_per_cell: Vec<T> = x.variance_whole::<I, T>(&single_algebra::Direction::ROW)?;
+    let n_per_gene: Vec<I> = x.nonzero_whole(&Direction::COLUMN)?;
+    let n_per_cell: Vec<I> = x.nonzero_whole(&Direction::ROW)?;
+    let sum_per_gene: Vec<T> = x.sum_whole(&Direction::COLUMN)?;
+    let sum_per_cell: Vec<T> = x.sum_whole(&Direction::ROW)?;
+    let var_per_gene: Vec<T> = x.variance_whole::<I, T>(&Direction::COLUMN)?;
+    let var_per_cell: Vec<T> = x.variance_whole::<I, T>(&Direction::ROW)?;
     let std_dev_per_gene: Vec<T> = var_per_gene.iter().map(|x| x.sqrt()).collect();
     let std_dev_per_cell: Vec<T> = var_per_cell.iter().map(|x| x.sqrt()).collect();
 
