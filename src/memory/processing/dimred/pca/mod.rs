@@ -5,10 +5,10 @@ use anndata::ArrayData;
 use anndata_memory::IMArrayElement;
 use anyhow::anyhow;
 use ndarray::{Array1, Array2};
-use rand::distr::Distribution;
 use rand::distr::Uniform;
+use rand::prelude::Distribution;
 use rand::rng;
-use single_algebra::dimred::pca::{MaskedSparsePCABuilder, SvdFloat};
+use single_algebra::dimred::pca::{MaskedSparsePCABuilder, SVDMethod};
 use single_utilities::traits::FloatOpsTS;
 use std::fmt::Debug;
 use std::ops::Deref;
@@ -17,10 +17,10 @@ pub struct PCAResult<T>
 where
     T: FloatOpsTS,
 {
-    transformed: Array2<T>,
-    explained_variance_ratio: Array1<T>,
-    cumulative_explained_variance_ratio: Array1<T>,
-    feature_importance: Array2<T>,
+    pub transformed: Array2<T>,
+    pub explained_variance_ratio: Array1<T>,
+    pub cumulative_explained_variance_ratio: Array1<T>,
+    pub feature_importance: Array2<T>,
 }
 pub fn run_pca_sparse_masked<T>(
     matrix: &IMArrayElement,
@@ -30,10 +30,10 @@ pub fn run_pca_sparse_masked<T>(
     n_components: Option<usize>,
     alpha: Option<f64>,
     random_seed: Option<u32>,
-    max_iter: Option<usize>,
+    svd_method: Option<SVDMethod>,
 ) -> anyhow::Result<PCAResult<T>>
 where
-    T: FloatOpsTS + SvdFloat,
+    T: FloatOpsTS,
 {
     let feature_selection_method =
         feature_selection_method.unwrap_or(FeatureSelectionMethod::RandomSelection(1000));
@@ -43,6 +43,7 @@ where
     let verbose = verbose.unwrap_or(false);
     let n_components = n_components.unwrap_or(50);
     let random_seed = random_seed.unwrap_or(42);
+    let svd_method = svd_method.unwrap_or(SVDMethod::default());
     let selected = match feature_selection_method {
         FeatureSelectionMethod::FullFeatures => {
             vec![true; ncols]
@@ -65,6 +66,7 @@ where
                         .alpha(alpha.unwrap_or(1.0) as f32)
                         .n_components(n_components)
                         .random_seed(random_seed)
+                        .svd_method(svd_method)
                         .build();
                     masked_pca.fit(csr)?;
                     let transformed = masked_pca.transform(csr)?;
@@ -89,9 +91,10 @@ where
                         .mask(selected)
                         .center(center)
                         .verbose(verbose)
-                        .alpha(alpha.unwrap_or(1.0) as f64)
+                        .alpha(alpha.unwrap_or(1.0))
                         .n_components(n_components)
                         .random_seed(random_seed)
+                        .svd_method(svd_method)
                         .build();
                     masked_pca.fit(csr)?;
                     let transformed = masked_pca.transform(csr)?;
@@ -104,10 +107,10 @@ where
                     let cumulative_explained_variance_ratio: Array1<T> = arr1_conversion(cumulative_explained_variance_ratio)?;
                     let feature_importance: Array2<T> = arr2_conversion(feature_importance)?;
                     let res = PCAResult {
-                        transformed: transformed,
-                        explained_variance_ratio: explained_variance_ratio,
-                        cumulative_explained_variance_ratio: cumulative_explained_variance_ratio,
-                        feature_importance: feature_importance,
+                        transformed,
+                        explained_variance_ratio,
+                        cumulative_explained_variance_ratio,
+                        feature_importance,
                     };
                     Ok(res)
                 }
