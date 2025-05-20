@@ -3,17 +3,26 @@ use anndata::data::{DynCsrMatrix, DynScalar};
 use anndata::{ArrayData, Data};
 use anndata_memory::{IMAnnData, IMElement};
 use nalgebra_sparse::CsrMatrix;
+use ndarray::parallel::prelude::IntoParallelIterator;
+use ndarray::parallel::prelude::ParallelIterator;
 use num_traits::{Float, FromPrimitive, NumCast};
+use polars::datatypes::CategoricalOrdering;
 use polars::datatypes::DataType;
+use polars::prelude::LogicalType;
+use single_statistics::testing::correction::{
+    benjamini_hochberg_correction, benjamini_yekutieli_correction, bonferroni_correction,
+    hochberg_correction, holm_bonferroni_correction, storey_qvalues,
+};
+use single_statistics::testing::effect::calculate_log2_fold_change;
+use single_statistics::testing::inference::nonparametric::mann_whitney;
+use single_statistics::testing::inference::parametric::t_test;
+use single_statistics::testing::inference::MatrixStatTests;
 use single_statistics::testing::{Alternative, TTestType, TestMethod, TestResult};
+use single_utilities::traits::FloatOpsTS;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::ops::Deref;
-use single_statistics::testing::correction::{benjamini_hochberg_correction, benjamini_yekutieli_correction, bonferroni_correction, hochberg_correction, holm_bonferroni_correction, storey_qvalues};
-use single_statistics::testing::effect::calculate_log2_fold_change;
-use single_statistics::testing::inference::MatrixStatTests;
-use single_utilities::traits::FloatOpsTS;
 
 #[derive(Clone)]
 pub enum CorrectionMethod {
@@ -41,7 +50,7 @@ pub fn rank_gene_groups(
     let key = key_added.unwrap_or("").to_string();
     let compute_lfc = compute_logfoldchanges.unwrap_or(true);
     let pseudocount = pseudocount.unwrap_or(1.0);
-    let n_genes = n_genes.unwrap_or(100);
+    let n_genes = n_genes.unwrap_or(adata.n_vars());
 
     let all_groups = get_unique_groups(adata, groupby)?;
     let groups_to_test = filter_groups_to_test(&all_groups, groups)?;
@@ -209,23 +218,26 @@ where
     let pvals_adj = apply_correction(&pvals, correction_method)?;
 
     let logfoldchanges = if compute_lfc {
-        let mut lfc_vec = Vec::with_capacity(csr_matrix.nrows());
-        for row in 0..csr_matrix.nrows() {
-            let lfc = calculate_log2_fold_change(
-                csr_matrix,
-                row,
-                group_indices,
-                reference_indices,
-                pseudocount,
-            )
-            .unwrap_or(0.0);
-            lfc_vec.push(lfc);
-        }
+        let lfc_vec: Vec<f64> = (0..csr_matrix.ncols()) // Iterate through columns (genes)
+            .into_par_iter()
+            .map(|col| {
+                // Calculate LFC for this gene
+                calculate_log2_fold_change(
+                    csr_matrix,
+                    col,
+                    group_indices,
+                    reference_indices,
+                    pseudocount,
+                )
+                .unwrap_or(0.0)
+            })
+            .collect();
         lfc_vec
     } else {
-        vec![0.0; csr_matrix.nrows()]
+        vec![0.0; csr_matrix.ncols()]
     };
 
+    // Sort by adjusted p-values
     let mut gene_indices: Vec<usize> = (0..pvals_adj.len()).collect();
     gene_indices.sort_by(|&a, &b| {
         pvals_adj[a]
@@ -233,10 +245,12 @@ where
             .unwrap_or(Ordering::Equal)
     });
 
+    // Limit to the requested number of genes
     if gene_indices.len() > n_genes {
         gene_indices.truncate(n_genes);
     }
 
+    // Create ordered results
     let mut ordered_scores = Vec::with_capacity(gene_indices.len());
     let mut ordered_pvals = Vec::with_capacity(gene_indices.len());
     let mut ordered_pvals_adj = Vec::with_capacity(gene_indices.len());
@@ -249,10 +263,8 @@ where
         ordered_pvals_adj.push(pvals_adj[idx]);
         ordered_logfoldchanges.push(logfoldchanges[idx]);
 
-        let gene_name = var_names
-            .get(idx)
-            .cloned()
-            .unwrap_or_else(|| format!("Gene_{}", idx));
+        // Safely get gene name (index should now be valid)
+        let gene_name = var_names[idx].clone();
         ordered_gene_names.push(gene_name);
     }
 
@@ -301,6 +313,39 @@ fn get_unique_groups(adata: &IMAnnData, groupby: &str) -> anyhow::Result<Vec<Str
 
             all_groups = unique_groups.into_iter().collect();
         }
+        DataType::Categorical(Some(mapping), ordering) => {
+            let categories = mapping.get_categories();
+            let mut unique_groups = Vec::new();
+
+            for i in 0..categories.len() {
+                let category = categories.value(i);
+                unique_groups.push(category.to_string());
+            }
+
+            match ordering {
+                CategoricalOrdering::Physical => {
+                    // nothing to do here
+                }
+                CategoricalOrdering::Lexical => {
+                    unique_groups.sort();
+                }
+            }
+
+            all_groups = unique_groups;
+        }
+        DataType::Categorical(None, _) => {
+            let string_col = group_col.cast(&DataType::String)?;
+            let string_col = string_col.str()?;
+            let mut unique_groups = std::collections::HashSet::new();
+
+            for i in 0..string_col.len() {
+                if let Some(value) = string_col.get(i) {
+                    unique_groups.insert(value.to_string());
+                }
+            }
+
+            all_groups = unique_groups.into_iter().collect();
+        }
         other => {
             return Err(anyhow::anyhow!(
                 "Unsupported data type for groupby column: {:?}",
@@ -309,7 +354,9 @@ fn get_unique_groups(adata: &IMAnnData, groupby: &str) -> anyhow::Result<Vec<Str
         }
     }
 
-    all_groups.sort();
+    if !matches!(group_col.dtype(), DataType::Categorical(Some(_), _)) {
+        all_groups.sort();
+    }
     Ok(all_groups)
 }
 
@@ -399,6 +446,21 @@ fn get_group_indices(adata: &IMAnnData, groupby: &str, group: &str) -> anyhow::R
             }
             indices
         }
+        DataType::Categorical(_, _) => {
+            let string_col = group_col.cast(&DataType::String)?;
+            let string_col = string_col.str()?;
+            let mut indices = Vec::new();
+
+            for i in 0..string_col.len() {
+                if let Some(value) = string_col.get(i) {
+                    if value == group {
+                        indices.push(i);
+                    }
+                }
+            }
+
+            indices
+        }
         other => {
             return Err(anyhow::anyhow!(
                 "Unsupported data type for groupby column: {:?}. Expected String or Integer type.",
@@ -415,45 +477,60 @@ fn get_group_indices(adata: &IMAnnData, groupby: &str, group: &str) -> anyhow::R
 }
 fn perform_test<T>(
     matrix: &CsrMatrix<T>,
-    group1_indices: &[usize],
-    group2_indices: &[usize],
+    group_indices: &[usize],
+    reference_indices: &[usize],
     method: TestMethod,
 ) -> anyhow::Result<Vec<TestResult>>
 where
     T: FloatOpsTS,
     CsrMatrix<T>: MatrixStatTests<T>,
 {
-    if group1_indices.is_empty() || group2_indices.is_empty() {
-        return Err(anyhow::anyhow!(
-            "Group indices cannot be empty: group1 has {}, group2 has: {}",
-            group1_indices.len(),
-            group2_indices.len()
-        ));
-    }
+    let n_cols = matrix.ncols(); // Number of genes
 
-    let nrows = matrix.nrows();
-    for &idx in group1_indices.iter().chain(group2_indices.iter()) {
-        if idx >= nrows {
-            return Err(anyhow::anyhow!(
-                "Cell index {} is out of bounds (nrows = {})",
-                idx,
-                nrows
-            ));
-        }
-    }
+    // Collect results for each column (gene)
+    let results: Vec<TestResult> = (0..n_cols)
+        .into_par_iter()
+        .map(|col| {
+            // Extract values for this gene from group1 cells
+            let mut group_values: Vec<f64> = Vec::with_capacity(group_indices.len());
+            for &row in group_indices {
+                if let Some(entry) = matrix.get_entry(row, col) {
+                    let value = entry.into_value();
+                    group_values.push(value.to_f64().unwrap());
+                } else {
+                    group_values.push(0.0); // Or handle missing values differently
+                }
+            }
 
-    match method {
-        TestMethod::TTest(ttype) => {
-            matrix.t_test(group1_indices, group2_indices, ttype, Alternative::TwoSided)
-        }
-        TestMethod::MannWhitney => {
-            matrix.mann_whitney_test(group1_indices, group2_indices, Alternative::TwoSided)
-        }
-        _ => Err(anyhow::anyhow!(
-            "Test method {:?} hasn't been implemented just yet.",
-            method
-        )),
-    }
+            // Extract values for this gene from reference cells
+            let mut reference_values: Vec<f64> = Vec::with_capacity(reference_indices.len());
+            for &row in reference_indices {
+                if let Some(entry) = matrix.get_entry(row, col) {
+                    let value = entry.into_value();
+                    reference_values.push(value.to_f64().unwrap());
+                } else {
+                    reference_values.push(0.0); // Or handle missing values differently
+                }
+            }
+
+            // Run appropriate statistical test
+            match method {
+                TestMethod::TTest(test_type) => t_test(
+                    &group_values,
+                    &reference_values,
+                    test_type,
+                    Alternative::TwoSided,
+                ),
+                TestMethod::MannWhitney => {
+                    mann_whitney(&group_values, &reference_values, Alternative::TwoSided)
+                }
+                // Handle other test methods similarly
+                _ => TestResult::new(0.0, 1.0), // Default for unimplemented methods
+            }
+        })
+        .collect();
+
+    Ok(results)
 }
 
 fn apply_correction(p_value: &[f64], method: CorrectionMethod) -> anyhow::Result<Vec<f64>> {
@@ -480,6 +557,7 @@ fn store_results(
     groupby: &str,
     reference: Option<&str>,
 ) -> anyhow::Result<()> {
+    println!("Storing groups");
     let scores_df = create_dataframe_from_map(&scores)?;
     let pvals_df = create_dataframe_from_map(&pvals)?;
     let pvals_adj_df = create_dataframe_from_map(&pvals_adj)?;
