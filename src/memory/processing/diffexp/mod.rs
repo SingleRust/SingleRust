@@ -1,12 +1,10 @@
-use single_statistics::testing::inference::nonparametric::mann_whitney;
-use single_statistics::testing::inference::parametric::t_test;
-use ndarray::parallel::prelude::ParallelIterator;
-use ndarray::parallel::prelude::IntoParallelIterator;
 use crate::memory::utils::{create_dataframe_from_map, create_string_dataframe_from_map};
 use anndata::data::{DynCsrMatrix, DynScalar};
 use anndata::{ArrayData, Data};
 use anndata_memory::{IMAnnData, IMElement};
 use nalgebra_sparse::CsrMatrix;
+use ndarray::parallel::prelude::IntoParallelIterator;
+use ndarray::parallel::prelude::ParallelIterator;
 use num_traits::{Float, FromPrimitive, NumCast};
 use polars::datatypes::CategoricalOrdering;
 use polars::datatypes::DataType;
@@ -16,6 +14,8 @@ use single_statistics::testing::correction::{
     hochberg_correction, holm_bonferroni_correction, storey_qvalues,
 };
 use single_statistics::testing::effect::calculate_log2_fold_change;
+use single_statistics::testing::inference::nonparametric::mann_whitney;
+use single_statistics::testing::inference::parametric::t_test;
 use single_statistics::testing::inference::MatrixStatTests;
 use single_statistics::testing::{Alternative, TTestType, TestMethod, TestResult};
 use single_utilities::traits::FloatOpsTS;
@@ -229,7 +229,7 @@ where
                     reference_indices,
                     pseudocount,
                 )
-                    .unwrap_or(0.0)
+                .unwrap_or(0.0)
             })
             .collect();
         lfc_vec
@@ -515,12 +515,17 @@ where
 
             // Run appropriate statistical test
             match method {
-                TestMethod::TTest(test_type) =>
-                    t_test(&group_values, &reference_values, test_type, Alternative::TwoSided),
-                TestMethod::MannWhitney =>
-                    mann_whitney(&group_values, &reference_values, Alternative::TwoSided),
+                TestMethod::TTest(test_type) => t_test(
+                    &group_values,
+                    &reference_values,
+                    test_type,
+                    Alternative::TwoSided,
+                ),
+                TestMethod::MannWhitney => {
+                    mann_whitney(&group_values, &reference_values, Alternative::TwoSided)
+                }
                 // Handle other test methods similarly
-                _ => TestResult::new(0.0, 1.0) // Default for unimplemented methods
+                _ => TestResult::new(0.0, 1.0), // Default for unimplemented methods
             }
         })
         .collect();
