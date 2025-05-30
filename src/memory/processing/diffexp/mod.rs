@@ -1,3 +1,4 @@
+use ndarray::parallel::prelude::IndexedParallelIterator;
 use crate::memory::utils::{create_dataframe_from_map, create_string_dataframe_from_map};
 use anndata::data::{DynCsrMatrix, DynScalar};
 use anndata::{ArrayData, Data};
@@ -13,12 +14,11 @@ use single_statistics::testing::correction::{
     benjamini_hochberg_correction, benjamini_yekutieli_correction, bonferroni_correction,
     hochberg_correction, holm_bonferroni_correction, storey_qvalues,
 };
-use single_statistics::testing::effect::calculate_log2_fold_change;
 use single_statistics::testing::inference::nonparametric::mann_whitney;
 use single_statistics::testing::inference::parametric::t_test;
 use single_statistics::testing::inference::MatrixStatTests;
 use single_statistics::testing::{Alternative, TTestType, TestMethod, TestResult};
-use single_utilities::traits::FloatOpsTS;
+use single_utilities::traits::{FloatOps, FloatOpsTS};
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::fmt::Debug;
@@ -172,10 +172,38 @@ where
             var_names,
         )?;
 
-        scores_map.insert(group.clone(), group_results.scores);
-        pvals_map.insert(group.clone(), group_results.pvals);
-        pvals_adj_map.insert(group.clone(), group_results.pvals_adj);
-        logfoldchanges_map.insert(group.clone(), group_results.logfoldchanges);
+        scores_map.insert(
+            group.clone(),
+            group_results
+                .scores
+                .into_iter()
+                .map(|x| x.to_f64().unwrap_or(0.0))
+                .collect(),
+        );
+        pvals_map.insert(
+            group.clone(),
+            group_results
+                .pvals
+                .into_iter()
+                .map(|x| x.to_f64().unwrap_or(0.0))
+                .collect(),
+        );
+        pvals_adj_map.insert(
+            group.clone(),
+            group_results
+                .pvals_adj
+                .into_iter()
+                .map(|x| x.to_f64().unwrap_or(0.0))
+                .collect(),
+        );
+        logfoldchanges_map.insert(
+            group.clone(),
+            group_results
+                .logfoldchanges
+                .into_iter()
+                .map(|x| x.to_f64().unwrap_or(0.0))
+                .collect(),
+        );
         gene_names_map.insert(group.clone(), group_results.gene_names);
     }
 
@@ -188,11 +216,14 @@ where
     })
 }
 
-struct GroupTestResults {
-    scores: Vec<f64>,
-    pvals: Vec<f64>,
-    pvals_adj: Vec<f64>,
-    logfoldchanges: Vec<f64>,
+struct GroupTestResults<T>
+where
+    T: FloatOps,
+{
+    scores: Vec<T>,
+    pvals: Vec<T>,
+    pvals_adj: Vec<T>,
+    logfoldchanges: Vec<T>,
     gene_names: Vec<String>,
 }
 
@@ -206,66 +237,152 @@ fn run_tests_for_group<T>(
     pseudocount: f64,
     n_genes: usize,
     var_names: &[String],
-) -> anyhow::Result<GroupTestResults>
+) -> anyhow::Result<GroupTestResults<T>>
 where
     T: FloatOpsTS,
     CsrMatrix<T>: MatrixStatTests<T>,
 {
-    let test_results = perform_test(csr_matrix, group_indices, reference_indices, method)?;
+    let n_cols = csr_matrix.ncols();
+    let n_rows = csr_matrix.nrows();
+    let pseudocount = T::from(pseudocount).unwrap();
+    
+    let group_size = T::from(group_indices.len()).unwrap();
+    let ref_size = T::from(reference_indices.len()).unwrap();
+    let group_inv = T::one() / group_size;
+    let ref_inv = T::one() / ref_size;
+    
+    let group_set: std::collections::HashSet<usize> = group_indices.iter().copied().collect();
+    let ref_set: std::collections::HashSet<usize> = reference_indices.iter().copied().collect();
+    
+    let mut scores = Vec::with_capacity(n_cols);
+    let mut pvals = Vec::with_capacity(n_cols);
+    let mut logfoldchanges = Vec::with_capacity(n_cols);
+    
+    let mut group_sums = vec![T::zero(); n_cols];
+    let mut ref_sums = vec![T::zero(); n_cols];
+    let mut group_values_per_col: Vec<Vec<T>> =
+        vec![Vec::with_capacity(group_indices.len()); n_cols];
+    let mut ref_values_per_col: Vec<Vec<T>> =
+        vec![Vec::with_capacity(reference_indices.len()); n_cols];
+    
+    for row in 0..n_rows {
+        let is_group = group_set.contains(&row);
+        let is_ref = ref_set.contains(&row);
 
-    let scores: Vec<f64> = test_results.iter().map(|r| r.statistic).collect();
-    let pvals: Vec<f64> = test_results.iter().map(|r| r.p_value).collect();
-    let pvals_adj = apply_correction(&pvals, correction_method)?;
-
-    let logfoldchanges = if compute_lfc {
-        let lfc_vec: Vec<f64> = (0..csr_matrix.ncols()) // Iterate through columns (genes)
-            .into_par_iter()
-            .map(|col| {
-                // Calculate LFC for this gene
-                calculate_log2_fold_change(
-                    csr_matrix,
-                    col,
-                    group_indices,
-                    reference_indices,
-                    pseudocount,
-                )
-                .unwrap_or(0.0)
-            })
-            .collect();
-        lfc_vec
-    } else {
-        vec![0.0; csr_matrix.ncols()]
-    };
-
-    // Sort by adjusted p-values
-    let mut gene_indices: Vec<usize> = (0..pvals_adj.len()).collect();
-    gene_indices.sort_by(|&a, &b| {
-        pvals_adj[a]
-            .partial_cmp(&pvals_adj[b])
-            .unwrap_or(Ordering::Equal)
-    });
-
-    // Limit to the requested number of genes
-    if gene_indices.len() > n_genes {
-        gene_indices.truncate(n_genes);
+        if !is_group && !is_ref {
+            continue;
+        }
+        
+        if let row_data = csr_matrix.row(row) {
+            for (&col, &value) in row_data.col_indices().iter().zip(row_data.values()) {
+                if is_group {
+                    group_sums[col] += value;
+                    group_values_per_col[col].push(value);
+                }
+                if is_ref {
+                    ref_sums[col] += value;
+                    ref_values_per_col[col].push(value);
+                }
+            }
+        }
     }
+    
+    const CHUNK_SIZE: usize = 64; 
 
-    // Create ordered results
-    let mut ordered_scores = Vec::with_capacity(gene_indices.len());
-    let mut ordered_pvals = Vec::with_capacity(gene_indices.len());
-    let mut ordered_pvals_adj = Vec::with_capacity(gene_indices.len());
-    let mut ordered_logfoldchanges = Vec::with_capacity(gene_indices.len());
-    let mut ordered_gene_names = Vec::with_capacity(gene_indices.len());
+    let chunk_results: Vec<Vec<(T, T, T)>> = (0..n_cols)
+        .into_par_iter()
+        .chunks(CHUNK_SIZE)
+        .map(|chunk| {
+            let mut chunk_scores = Vec::with_capacity(chunk.len());
+            let mut chunk_pvals = Vec::with_capacity(chunk.len());
+            let mut chunk_lfcs = Vec::with_capacity(chunk.len());
 
+            for col in chunk {
+                let group_values = &group_values_per_col[col];
+                let ref_values = &ref_values_per_col[col];
+                
+                let mut padded_group_values = group_values.clone();
+                let mut padded_ref_values = ref_values.clone();
+
+                padded_group_values.resize(group_indices.len(), T::zero());
+                padded_ref_values.resize(reference_indices.len(), T::zero());
+                
+                let test_result = match method {
+                    TestMethod::TTest(test_type) => t_test(
+                        &padded_group_values,
+                        &padded_ref_values,
+                        test_type,
+                        Alternative::TwoSided,
+                    ),
+                    TestMethod::MannWhitney => mann_whitney(
+                        &padded_group_values,
+                        &padded_ref_values,
+                        Alternative::TwoSided,
+                    ),
+                    _ => TestResult::new(T::zero(), T::one()),
+                };
+                
+                let log_fc = if compute_lfc {
+                    let mean_group = group_sums[col] * group_inv + pseudocount;
+                    let mean_ref = ref_sums[col] * ref_inv + pseudocount;
+                    (mean_group / mean_ref).log2()
+                } else {
+                    T::zero()
+                };
+
+                chunk_scores.push(test_result.statistic);
+                chunk_pvals.push(test_result.p_value);
+                chunk_lfcs.push(log_fc);
+            }
+
+            chunk_scores
+                .into_iter()
+                .zip(chunk_pvals)
+                .zip(chunk_lfcs)
+                .map(|((s, p), l)| (s, p, l))
+                .collect()
+        })
+        .collect();
+    
+    for chunk in chunk_results {
+        for (score, pval, lfc) in chunk {
+            scores.push(score);
+            pvals.push(pval);
+            logfoldchanges.push(lfc);
+        }
+    }
+    
+    let pvals_adj = apply_correction(&pvals, correction_method)?;
+    
+    let mut gene_indices: Vec<usize> = (0..pvals_adj.len()).collect();
+    
+    gene_indices.sort_unstable_by(|&a, &b| {
+        match pvals_adj[a].partial_cmp(&pvals_adj[b]) {
+            Some(Ordering::Equal) => {
+                pvals[a].partial_cmp(&pvals[b]).unwrap_or(Ordering::Equal)
+            }
+            Some(ord) => ord,
+            None => Ordering::Equal,
+        }
+    });
+    
+    gene_indices.truncate(n_genes.min(gene_indices.len()));
+    
+    let result_len = gene_indices.len();
+    let mut ordered_scores = Vec::with_capacity(result_len);
+    let mut ordered_pvals = Vec::with_capacity(result_len);
+    let mut ordered_pvals_adj = Vec::with_capacity(result_len);
+    let mut ordered_logfoldchanges = Vec::with_capacity(result_len);
+    let mut ordered_gene_names = Vec::with_capacity(result_len);
+    
     for &idx in &gene_indices {
-        ordered_scores.push(scores[idx]);
-        ordered_pvals.push(pvals[idx]);
-        ordered_pvals_adj.push(pvals_adj[idx]);
-        ordered_logfoldchanges.push(logfoldchanges[idx]);
-
-        // Safely get gene name (index should now be valid)
-        let gene_name = var_names[idx].clone();
-        ordered_gene_names.push(gene_name);
+        unsafe {
+            ordered_scores.push(*scores.get_unchecked(idx));
+            ordered_pvals.push(*pvals.get_unchecked(idx));
+            ordered_pvals_adj.push(*pvals_adj.get_unchecked(idx));
+            ordered_logfoldchanges.push(*logfoldchanges.get_unchecked(idx));
+            ordered_gene_names.push(var_names.get_unchecked(idx).clone());
+        }
     }
 
     Ok(GroupTestResults {
@@ -392,14 +509,14 @@ fn resolve_reference_group(
     match reference {
         Some(ref_group) => {
             if ref_group == "rest" {
-                Ok(None) // Special case for comparing against all other cells
+                Ok(None)
             } else if all_groups.contains(&ref_group.to_string()) {
                 Ok(Some(ref_group.to_string()))
             } else {
                 Err(anyhow::anyhow!("Reference group '{}' not found", ref_group))
             }
         }
-        None => Ok(None), // Default to "rest" comparison
+        None => Ok(None),
     }
 }
 
@@ -480,40 +597,36 @@ fn perform_test<T>(
     group_indices: &[usize],
     reference_indices: &[usize],
     method: TestMethod,
-) -> anyhow::Result<Vec<TestResult>>
+) -> anyhow::Result<Vec<TestResult<T>>>
 where
     T: FloatOpsTS,
     CsrMatrix<T>: MatrixStatTests<T>,
 {
-    let n_cols = matrix.ncols(); // Number of genes
-
-    // Collect results for each column (gene)
-    let results: Vec<TestResult> = (0..n_cols)
+    let n_cols = matrix.ncols(); 
+    
+    let results: Vec<TestResult<T>> = (0..n_cols)
         .into_par_iter()
         .map(|col| {
-            // Extract values for this gene from group1 cells
-            let mut group_values: Vec<f64> = Vec::with_capacity(group_indices.len());
+            let mut group_values: Vec<T> = Vec::with_capacity(group_indices.len());
             for &row in group_indices {
                 if let Some(entry) = matrix.get_entry(row, col) {
                     let value = entry.into_value();
-                    group_values.push(value.to_f64().unwrap());
+                    group_values.push(value);
                 } else {
-                    group_values.push(0.0); // Or handle missing values differently
+                    group_values.push(T::zero()); 
                 }
             }
-
-            // Extract values for this gene from reference cells
-            let mut reference_values: Vec<f64> = Vec::with_capacity(reference_indices.len());
+            
+            let mut reference_values: Vec<T> = Vec::with_capacity(reference_indices.len());
             for &row in reference_indices {
                 if let Some(entry) = matrix.get_entry(row, col) {
                     let value = entry.into_value();
-                    reference_values.push(value.to_f64().unwrap());
+                    reference_values.push(value);
                 } else {
-                    reference_values.push(0.0); // Or handle missing values differently
+                    reference_values.push(T::zero());
                 }
             }
-
-            // Run appropriate statistical test
+            
             match method {
                 TestMethod::TTest(test_type) => t_test(
                     &group_values,
@@ -524,8 +637,7 @@ where
                 TestMethod::MannWhitney => {
                     mann_whitney(&group_values, &reference_values, Alternative::TwoSided)
                 }
-                // Handle other test methods similarly
-                _ => TestResult::new(0.0, 1.0), // Default for unimplemented methods
+                _ => TestResult::new(T::zero(), T::one()),
             }
         })
         .collect();
@@ -533,14 +645,17 @@ where
     Ok(results)
 }
 
-fn apply_correction(p_value: &[f64], method: CorrectionMethod) -> anyhow::Result<Vec<f64>> {
+fn apply_correction<T>(p_value: &[T], method: CorrectionMethod) -> anyhow::Result<Vec<T>>
+where
+    T: FloatOps,
+{
     match method {
         CorrectionMethod::Bonferroni => bonferroni_correction(p_value),
         CorrectionMethod::BejaminiHochberg => benjamini_hochberg_correction(p_value),
         CorrectionMethod::BenjaminiYekutieli => benjamini_yekutieli_correction(p_value),
         CorrectionMethod::HolmBonferroni => holm_bonferroni_correction(p_value),
         CorrectionMethod::Hochberg => hochberg_correction(p_value),
-        CorrectionMethod::StoreyQValue => storey_qvalues(p_value, 0.5),
+        CorrectionMethod::StoreyQValue => storey_qvalues(p_value, T::from(0.5).unwrap()),
     }
 }
 
