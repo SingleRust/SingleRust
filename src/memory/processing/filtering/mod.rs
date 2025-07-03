@@ -201,7 +201,7 @@ where
     T: num_traits::Float + num_traits::NumCast + std::ops::AddAssign + std::iter::Sum + Send + Sync,
 {
     let mut keep_genes = vec![true; anndata.n_vars()];
-    let x_elem = anndata.x().clone();
+    let x_elem = anndata.x();
 
     if min_cells.is_some()
         || max_cells.is_some()
