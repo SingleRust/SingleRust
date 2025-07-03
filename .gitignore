@@ -7,3 +7,4 @@ resources
 .vscode
 _build/
 _build/*
+.fleet

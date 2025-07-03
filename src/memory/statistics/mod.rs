@@ -1,23 +1,29 @@
 use std::ops::{AddAssign, Deref};
 pub mod structs;
 
-use anndata_memory::{IMAnnData, IMArrayElement};
-use anyhow::bail;
+use anndata_memory::IMArrayElement;
+use anyhow::{bail, Ok};
 use num_traits::{PrimInt, Unsigned, Zero};
-use single_algebra::sparse::{MatrixMinMax, MatrixNonZero, MatrixSum, MatrixVariance};
+use single_algebra::sparse::{MatrixMinMax, MatrixNTop, MatrixNonZero, MatrixSum, MatrixVariance};
 use single_utilities::traits::NumericOps;
 use single_utilities::types::Direction;
-use structs::StatisticsContainer;
+
+mod qc;
+pub use qc::calculate_qc_metrics;
+pub use qc::qc_metrics;
 
 use crate::{
     match_array_data_apply_function, match_array_data_apply_function_with_generics,
-    shared::statistics::{ComputeMinMax, ComputeNonZero, ComputeSum, ComputeVariance},
+    shared::statistics::{
+        ComputeMinMax, ComputeNTop, ComputeNonZero, ComputeSum, ComputeTopSegmentProportions,
+        ComputeVariance,
+    },
 };
 
 impl ComputeNonZero for IMArrayElement {
     fn nonzero_whole<T>(&self, direction: &Direction) -> anyhow::Result<Vec<T>>
     where
-        T: num_traits::PrimInt + num_traits::Unsigned + num_traits::Zero + std::ops::AddAssign,
+        T: num_traits::PrimInt + num_traits::Unsigned + num_traits::Zero + std::ops::AddAssign + Send + Sync,
     {
         let read_guard = self.0.read_inner();
         let data = read_guard.deref();
@@ -29,13 +35,9 @@ impl ComputeNonZero for IMArrayElement {
         }
     }
 
-    fn nonzero_chunk<T>(
-        &self,
-        direction: &Direction,
-        reference: &mut [T],
-    ) -> anyhow::Result<()>
+    fn nonzero_chunk<T>(&self, direction: &Direction, reference: &mut [T]) -> anyhow::Result<()>
     where
-        T: num_traits::PrimInt + num_traits::Unsigned + num_traits::Zero + std::ops::AddAssign,
+        T: num_traits::PrimInt + num_traits::Unsigned + num_traits::Zero + std::ops::AddAssign + Send + Sync,
     {
         let read_guard = self.0.read_inner();
         let data = read_guard.deref();
@@ -49,29 +51,31 @@ impl ComputeNonZero for IMArrayElement {
         }
     }
 
-    // #[cfg(feature = "simba")]
-    // fn simba_nonzero_whole<T>(&self, direction: &Direction) -> anyhow::Result<Vec<T::Element>>
-    // where
-    //     T: simba::simd::SimdValue + simba::simd::PrimitiveSimdValue,
-    //     T::Element: PrimInt + Unsigned + Zero + AddAssign,
-    // {
-    //     let read_guard = self.0.read_inner();
-    //     let data = read_guard.deref();
-    //     match direction {
-    //         Direction::COLUMN => {
-    //             match_array_data_apply_function_with_generics!(data, simba_nonzero_col, [T])
-    //         }
-    //         Direction::ROW => {
-    //             match_array_data_apply_function_with_generics!(data, simba_nonzero_row, [T])
-    //         }
-    //     }
-    // }
+    fn nonzero_whole_masked<T>(
+        &self,
+        direction: &Direction,
+        mask: &[bool],
+    ) -> anyhow::Result<Vec<T>>
+    where
+        T: PrimInt + Unsigned + Zero + AddAssign + Send + Sync,
+    {
+        let read_guard = self.0.read_inner();
+        let data = read_guard.deref();
+        match direction {
+            Direction::COLUMN => {
+                match_array_data_apply_function!(data, nonzero_col_masked, mask)
+            }
+            Direction::ROW => {
+                match_array_data_apply_function!(data, nonzero_row_masked, mask)
+            }
+        }
+    }
 }
 
 impl ComputeSum for IMArrayElement {
     fn sum_whole<T>(&self, direction: &Direction) -> anyhow::Result<Vec<T>>
     where
-        T: num_traits::Float + num_traits::NumCast + std::ops::AddAssign + std::iter::Sum,
+        T: num_traits::Float + num_traits::NumCast + std::ops::AddAssign + std::iter::Sum + Send + Sync,
     {
         let read_guard = self.0.read_inner();
         let data = read_guard.deref();
@@ -83,13 +87,9 @@ impl ComputeSum for IMArrayElement {
         }
     }
 
-    fn sum_chunk<T>(
-        &self,
-        direction: &Direction,
-        reference: &mut [T],
-    ) -> anyhow::Result<()>
+    fn sum_chunk<T>(&self, direction: &Direction, reference: &mut [T]) -> anyhow::Result<()>
     where
-        T: num_traits::Float + num_traits::NumCast + std::ops::AddAssign + std::iter::Sum,
+        T: num_traits::Float + num_traits::NumCast + std::ops::AddAssign + std::iter::Sum + Send + Sync,
     {
         let read_guard = self.0.read_inner();
         let data = read_guard.deref();
@@ -102,6 +102,22 @@ impl ComputeSum for IMArrayElement {
             }
         }
     }
+
+    fn sum_whole_masked<T>(&self, direction: &Direction, mask: &[bool]) -> anyhow::Result<Vec<T>>
+    where
+        T: num_traits::Float + num_traits::NumCast + AddAssign + std::iter::Sum + Send + Sync,
+    {
+        let read_guard = self.0.read_inner();
+        let data = read_guard.deref();
+        match direction {
+            Direction::COLUMN => {
+                match_array_data_apply_function!(data, sum_col_masked, mask)
+            }
+            Direction::ROW => {
+                match_array_data_apply_function!(data, sum_row_masked, mask)
+            }
+        }
+    }
 }
 
 impl ComputeVariance for IMArrayElement {
@@ -111,10 +127,10 @@ impl ComputeVariance for IMArrayElement {
             + num_traits::Unsigned
             + num_traits::Zero
             + std::ops::AddAssign
-            + Into<T>,
-        T: num_traits::Float + num_traits::NumCast + std::ops::AddAssign + std::iter::Sum,
+            + Into<T> + Send + Sync,
+        T: num_traits::Float + num_traits::NumCast + std::ops::AddAssign + std::iter::Sum + Send + Sync,
     {
-        let read_guard = self.0.read_inner(); // establish a read guard
+        let read_guard = self.0.read_inner();
 
         let data = read_guard.deref();
 
@@ -128,20 +144,16 @@ impl ComputeVariance for IMArrayElement {
         }
     }
 
-    fn variance_chunk<I, T>(
-        &self,
-        direction: &Direction,
-        reference: &mut [T],
-    ) -> anyhow::Result<()>
+    fn variance_chunk<I, T>(&self, direction: &Direction, reference: &mut [T]) -> anyhow::Result<()>
     where
         I: num_traits::PrimInt
             + num_traits::Unsigned
             + num_traits::Zero
             + std::ops::AddAssign
-            + Into<T>,
-        T: num_traits::Float + num_traits::NumCast + std::ops::AddAssign + std::iter::Sum,
+            + Into<T> + Send + Sync,
+        T: num_traits::Float + num_traits::NumCast + std::ops::AddAssign + std::iter::Sum + Send + Sync,
     {
-        let read_guard = self.0.read_inner(); // establish a read guard
+        let read_guard = self.0.read_inner();
 
         let data = read_guard.deref();
 
@@ -167,14 +179,11 @@ impl ComputeVariance for IMArrayElement {
 }
 
 impl ComputeMinMax for IMArrayElement {
-    fn min_max_whole<T>(
-        &self,
-        direction: &Direction,
-    ) -> anyhow::Result<(Vec<T>, Vec<T>)>
+    fn min_max_whole<T>(&self, direction: &Direction) -> anyhow::Result<(Vec<T>, Vec<T>)>
     where
-        T: num_traits::NumCast + Copy + PartialOrd + NumericOps,
+        T: num_traits::NumCast + Copy + PartialOrd + NumericOps + Send + Sync,
     {
-        let read_guard = self.0.read_inner(); // establish a read guard
+        let read_guard = self.0.read_inner();
 
         let data = read_guard.deref();
 
@@ -192,9 +201,9 @@ impl ComputeMinMax for IMArrayElement {
         reference: (&mut Vec<T>, &mut Vec<T>),
     ) -> anyhow::Result<()>
     where
-        T: num_traits::NumCast + Copy + PartialOrd + NumericOps,
+        T: num_traits::NumCast + Copy + PartialOrd + NumericOps + Send + Sync,
     {
-        let read_guard = self.0.read_inner(); // establish a read guard
+        let read_guard = self.0.read_inner();
 
         let data = read_guard.deref();
 
@@ -217,32 +226,81 @@ impl ComputeMinMax for IMArrayElement {
     }
 }
 
-pub fn compute_qc_variables<I, T>(adata: &IMAnnData) -> anyhow::Result<StatisticsContainer<I, T>>
-where
-    I: num_traits::PrimInt + num_traits::Unsigned + num_traits::Zero + std::ops::AddAssign,
-    T: num_traits::Float + num_traits::NumCast + std::ops::AddAssign + std::iter::Sum + From<I>,
-{
-    let x = adata.x();
+impl ComputeNTop for IMArrayElement {
+    fn n_top_whole<T>(&self, direction: &Direction, n: usize) -> anyhow::Result<Vec<T>>
+    where
+        T: num_traits::Float + num_traits::NumCast + Copy + PartialOrd + NumericOps + Send + Sync,
+    {
+        let read_guard = self.0.read_inner();
+        let data = read_guard.deref();
+        match direction {
+            Direction::COLUMN => {
+                match_array_data_apply_function!(data, sum_row_n_top, n)
+            }
+            Direction::ROW => {
+                match_array_data_apply_function!(data, sum_row_n_top, n)
+            }
+        }
+    }
+}
 
-    let n_per_gene: Vec<I> = x.nonzero_whole(&Direction::COLUMN)?;
-    let n_per_cell: Vec<I> = x.nonzero_whole(&Direction::ROW)?;
-    let sum_per_gene: Vec<T> = x.sum_whole(&Direction::COLUMN)?;
-    let sum_per_cell: Vec<T> = x.sum_whole(&Direction::ROW)?;
-    let var_per_gene: Vec<T> = x.variance_whole::<I, T>(&Direction::COLUMN)?;
-    let var_per_cell: Vec<T> = x.variance_whole::<I, T>(&Direction::ROW)?;
-    let std_dev_per_gene: Vec<T> = var_per_gene.iter().map(|x| x.sqrt()).collect();
-    let std_dev_per_cell: Vec<T> = var_per_cell.iter().map(|x| x.sqrt()).collect();
+impl ComputeTopSegmentProportions for IMArrayElement {
+    fn top_segment_proportions(
+        &self,
+        direction: &Direction,
+        ns: &[usize],
+    ) -> anyhow::Result<ndarray::Array2<f64>> {
+        let shape = self.get_shape()?;
+        let (n_items, n_features) = match direction {
+            Direction::ROW => (shape[0], shape[1]),
+            Direction::COLUMN => (shape[1], shape[0]),
+        };
 
-    Ok(StatisticsContainer {
-        num_per_cell: n_per_cell,
-        num_per_gene: n_per_gene,
-        expr_per_gene: sum_per_gene,
-        expr_per_cell: sum_per_cell,
-        variance_per_gene: var_per_gene,
-        variance_per_cell: var_per_cell,
-        std_dev_per_cell,
-        std_dev_per_gene,
-    })
+        for &n in ns {
+            if n > n_features {
+                return Err(anyhow::anyhow!(
+                    "Requested top {} features but only {} available",
+                    n,
+                    n_features
+                ));
+            }
+        }
+
+        let totals: Vec<f64> = self.sum_whole(direction)?;
+
+        const BATCH_SIZE: usize = 1000;
+        let mut proportions = ndarray::Array2::<f64>::zeros((n_items, ns.len()));
+
+        let mut unique_ns: Vec<usize> = ns.to_vec();
+        unique_ns.sort_unstable();
+        unique_ns.dedup();
+
+        let mut n_to_indices: std::collections::HashMap<usize, Vec<usize>> =
+            std::collections::HashMap::new();
+        for (idx, &n) in ns.iter().enumerate() {
+            n_to_indices.entry(n).or_default().push(idx);
+        }
+
+        for &n in &unique_ns {
+            let top_values: Vec<f64> = self.n_top_whole(direction, n)?;
+
+            for item_idx in 0..n_items {
+                let total = totals[item_idx];
+                if total > 0.0 {
+                    let start_idx = item_idx * n;
+                    let end_idx = start_idx + n;
+                    let sum_top_n: f64 = top_values[start_idx..end_idx].iter().sum();
+                    let proportion = sum_top_n / total;
+
+                    for &ns_idx in &n_to_indices[&n] {
+                        proportions[[item_idx, ns_idx]] = proportion;
+                    }
+                }
+            }
+        }
+
+        Ok(proportions)
+    }
 }
 
 /*

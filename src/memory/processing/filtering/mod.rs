@@ -1,6 +1,6 @@
+use crate::shared::statistics::{ComputeNonZero, ComputeSum};
 use anndata_memory::IMAnnData;
 use single_utilities::types::Direction;
-use crate::shared::statistics::{ComputeNonZero, ComputeSum};
 
 /// Filter cells based on various quality control metrics.
 ///
@@ -62,8 +62,10 @@ where
         + num_traits::Unsigned
         + num_traits::Zero
         + std::ops::AddAssign
-        + Into<T>,
-    T: num_traits::Float + num_traits::NumCast + std::ops::AddAssign + std::iter::Sum,
+        + Into<T>
+        + Send
+        + Sync,
+    T: num_traits::Float + num_traits::NumCast + std::ops::AddAssign + std::iter::Sum + Send + Sync,
 {
     let mut keep_cells = vec![true; anndata.n_obs()];
     let x_elem = anndata.x().clone();
@@ -193,8 +195,10 @@ where
         + num_traits::Unsigned
         + num_traits::Zero
         + std::ops::AddAssign
-        + Into<T>,
-    T: num_traits::Float + num_traits::NumCast + std::ops::AddAssign + std::iter::Sum,
+        + Into<T>
+        + Send
+        + Sync,
+    T: num_traits::Float + num_traits::NumCast + std::ops::AddAssign + std::iter::Sum + Send + Sync,
 {
     let mut keep_genes = vec![true; anndata.n_vars()];
     let x_elem = anndata.x().clone();
