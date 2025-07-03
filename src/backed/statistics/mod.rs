@@ -13,7 +13,7 @@ use std::ops::AddAssign;
 impl<B: Backend> ComputeNonZero for ArrayElem<B> {
     fn nonzero_whole<T>(&self, direction: &Direction) -> anyhow::Result<Vec<T>>
     where
-        T: PrimInt + Unsigned + Zero + AddAssign,
+        T: PrimInt + Unsigned + Zero + AddAssign + Send + Sync,
     {
         let x_data = self.get::<ArrayData>()?.expect("X matrix not found!");
         match direction {
@@ -26,7 +26,7 @@ impl<B: Backend> ComputeNonZero for ArrayElem<B> {
 
     fn nonzero_chunk<T>(&self, direction: &Direction, reference: &mut [T]) -> anyhow::Result<()>
     where
-        T: PrimInt + Unsigned + Zero + AddAssign,
+        T: PrimInt + Unsigned + Zero + AddAssign + Send + Sync,
     {
         match direction {
             Direction::COLUMN => {
@@ -46,12 +46,22 @@ impl<B: Backend> ComputeNonZero for ArrayElem<B> {
         }
         Ok(())
     }
+    
+    fn nonzero_whole_masked<T>(
+        &self,
+        direction: &Direction,
+        mask: &[bool],
+    ) -> anyhow::Result<Vec<T>>
+    where
+        T: PrimInt + Unsigned + Zero + AddAssign {
+        todo!()
+    }
 }
 
 impl<B: Backend> ComputeSum for ArrayElem<B> {
     fn sum_whole<T>(&self, direction: &Direction) -> anyhow::Result<Vec<T>>
     where
-        T: num_traits::Float + num_traits::NumCast + AddAssign + std::iter::Sum,
+        T: num_traits::Float + num_traits::NumCast + AddAssign + std::iter::Sum + Send + Sync,
     {
         let x_data = self.get::<ArrayData>()?.expect("X matrix not found!");
         match direction {
@@ -64,7 +74,7 @@ impl<B: Backend> ComputeSum for ArrayElem<B> {
 
     fn sum_chunk<T>(&self, direction: &Direction, reference: &mut [T]) -> anyhow::Result<()>
     where
-        T: num_traits::Float + num_traits::NumCast + AddAssign + std::iter::Sum,
+        T: num_traits::Float + num_traits::NumCast + AddAssign + std::iter::Sum + Send + Sync,
     {
         match direction {
             Direction::COLUMN => {
@@ -84,13 +94,19 @@ impl<B: Backend> ComputeSum for ArrayElem<B> {
         }
         Ok(())
     }
+    
+    fn sum_whole_masked<T>(&self, direction: &Direction, mask: &[bool]) -> anyhow::Result<Vec<T>>
+    where
+        T: num_traits::Float + num_traits::NumCast + AddAssign + std::iter::Sum + Send + Sync {
+        todo!()
+    }
 }
 
 impl<B: Backend> ComputeVariance for ArrayElem<B> {
     fn variance_whole<I, T>(&self, direction: &Direction) -> anyhow::Result<Vec<T>>
     where
-        I: PrimInt + Unsigned + Zero + AddAssign + Into<T>,
-        T: num_traits::Float + num_traits::NumCast + AddAssign + std::iter::Sum,
+        I: PrimInt + Unsigned + Zero + AddAssign + Into<T> + Send + Sync,
+        T: num_traits::Float + num_traits::NumCast + AddAssign + std::iter::Sum + Send + Sync,
     {
         let x_data = self.get::<ArrayData>()?.expect("X matrix not found!");
         match direction {
@@ -105,8 +121,8 @@ impl<B: Backend> ComputeVariance for ArrayElem<B> {
 
     fn variance_chunk<I, T>(&self, direction: &Direction, reference: &mut [T]) -> anyhow::Result<()>
     where
-        I: PrimInt + Unsigned + Zero + AddAssign + Into<T>,
-        T: num_traits::Float + num_traits::NumCast + AddAssign + std::iter::Sum,
+        I: PrimInt + Unsigned + Zero + AddAssign + Into<T> + Send + Sync,
+        T: num_traits::Float + num_traits::NumCast + AddAssign + std::iter::Sum + Send + Sync,
     {
         match direction {
             Direction::COLUMN => {
@@ -137,7 +153,7 @@ impl<B: Backend> ComputeVariance for ArrayElem<B> {
 impl<B: Backend> ComputeMinMax for ArrayElem<B> {
     fn min_max_whole<T>(&self, direction: &Direction) -> anyhow::Result<(Vec<T>, Vec<T>)>
     where
-        T: num_traits::NumCast + Copy + PartialOrd + NumericOps,
+        T: num_traits::NumCast + Copy + PartialOrd + NumericOps + Send + Sync,
     {
         let x_data = self.get::<ArrayData>()?.expect("X matrix not found!");
         match direction {
@@ -154,7 +170,7 @@ impl<B: Backend> ComputeMinMax for ArrayElem<B> {
         reference: (&mut Vec<T>, &mut Vec<T>),
     ) -> anyhow::Result<()>
     where
-        T: num_traits::NumCast + Copy + PartialOrd + NumericOps,
+        T: num_traits::NumCast + Copy + PartialOrd + NumericOps + Send + Sync,
     {
         // Destructure the reference tuple into min and max vectors
         let (min_ref, max_ref) = reference;

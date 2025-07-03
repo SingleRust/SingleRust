@@ -6,10 +6,10 @@ use anndata_memory::{IMAnnData, IMElement};
 use nalgebra_sparse::CsrMatrix;
 use ndarray::parallel::prelude::IntoParallelIterator;
 use ndarray::parallel::prelude::ParallelIterator;
-use num_traits::{Float, FromPrimitive, NumCast};
+use num_traits::{NumCast};
+use num_traits::Float;
 use polars::datatypes::CategoricalOrdering;
 use polars::datatypes::DataType;
-use polars::prelude::LogicalType;
 use single_statistics::testing::correction::{
     benjamini_hochberg_correction, benjamini_yekutieli_correction, bonferroni_correction,
     hochberg_correction, holm_bonferroni_correction, storey_qvalues,
@@ -21,7 +21,6 @@ use single_statistics::testing::{Alternative, TTestType, TestMethod, TestResult}
 use single_utilities::traits::{FloatOps, FloatOpsTS};
 use std::cmp::Ordering;
 use std::collections::HashMap;
-use std::fmt::Debug;
 use std::ops::Deref;
 
 #[derive(Clone)]
