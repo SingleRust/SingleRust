@@ -23,3 +23,7 @@ pub fn read_h5ad_memory<P: AsRef<Path>>(path_to_file: P) -> anyhow::Result<IMAnn
     let adata = read_h5ad(path_to_file, FileScope::Read, false)?;
     convert_to_in_memory(adata)
 }
+
+pub fn read_h5ad_fast_memory<P: AsRef<Path>>(path_to_file: P) -> anyhow::Result<IMAnnData> {
+    anndata_memory::load_h5ad_fast(path_to_file)
+}
