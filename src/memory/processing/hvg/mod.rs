@@ -57,8 +57,8 @@ fn equal_width_binning(log_means: &[f64], n_bins: usize) -> anyhow::Result<(Vec<
     let bin_width = (max_mean - min_mean) / n_bins as f64;
     let mut bin_edges = vec![0.0; n_bins + 1];
 
-    for i in 0..=n_bins {
-        bin_edges[i] = min_mean + (i as f64) * bin_width;
+    for (i, edge) in bin_edges.iter_mut().enumerate().take(n_bins + 1) {
+        *edge = min_mean + (i as f64) * bin_width;
     }
 
     // Make sure the last edge includes the maximum value
@@ -289,16 +289,10 @@ fn compute_seurat_hvg(
     let normalized_dispersions =
         normalize_dispersions(&log_dispersions, &bin_indices, &bin_means, &bin_stds)?;
 
-    // Note: Python uses np.nan_to_num() before selecting genes
-    let normalized_dispersions_clean: Vec<f64> = normalized_dispersions
-        .iter()
-        .map(|&x| if x.is_nan() { 0.0 } else { x })
-        .collect();
-
     // Select highly variable genes using raw means for filtering
     let highly_variable = subset_genes(
         &log1p_means, // Pass log-transformed means
-        &normalized_dispersions_clean,
+        &normalized_dispersions,
         params.n_top_genes,
         params.min_mean,
         params.max_mean,
