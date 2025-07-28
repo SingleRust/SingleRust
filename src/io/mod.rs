@@ -9,13 +9,19 @@ pub enum FileScope {
     ReadWrite = 1,
 }
 
-pub fn read_h5ad<P: AsRef<Path>>(path_to_file: P, scope: FileScope, enable_cache: bool) -> anyhow::Result<AnnData<H5>> {
+pub fn read_h5ad<P: AsRef<Path>>(
+    path_to_file: P,
+    scope: FileScope,
+    enable_cache: bool,
+) -> anyhow::Result<AnnData<H5>> {
     let h5_file = match scope {
         FileScope::Read => H5::open(path_to_file)?,
         FileScope::ReadWrite => H5::open_rw(path_to_file)?,
     };
     let adata = AnnData::<H5>::open(h5_file)?;
-    if enable_cache {adata.get_x().inner().enable_cache();}
+    if enable_cache {
+        adata.get_x().inner().enable_cache();
+    }
     Ok(adata)
 }
 

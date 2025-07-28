@@ -23,7 +23,12 @@ use crate::{
 impl ComputeNonZero for IMArrayElement {
     fn nonzero_whole<T>(&self, direction: &Direction) -> anyhow::Result<Vec<T>>
     where
-        T: num_traits::PrimInt + num_traits::Unsigned + num_traits::Zero + std::ops::AddAssign + Send + Sync,
+        T: num_traits::PrimInt
+            + num_traits::Unsigned
+            + num_traits::Zero
+            + std::ops::AddAssign
+            + Send
+            + Sync,
     {
         let read_guard = self.0.read_inner();
         let data = read_guard.deref();
@@ -37,7 +42,12 @@ impl ComputeNonZero for IMArrayElement {
 
     fn nonzero_chunk<T>(&self, direction: &Direction, reference: &mut [T]) -> anyhow::Result<()>
     where
-        T: num_traits::PrimInt + num_traits::Unsigned + num_traits::Zero + std::ops::AddAssign + Send + Sync,
+        T: num_traits::PrimInt
+            + num_traits::Unsigned
+            + num_traits::Zero
+            + std::ops::AddAssign
+            + Send
+            + Sync,
     {
         let read_guard = self.0.read_inner();
         let data = read_guard.deref();
@@ -75,7 +85,12 @@ impl ComputeNonZero for IMArrayElement {
 impl ComputeSum for IMArrayElement {
     fn sum_whole<T>(&self, direction: &Direction) -> anyhow::Result<Vec<T>>
     where
-        T: num_traits::Float + num_traits::NumCast + std::ops::AddAssign + std::iter::Sum + Send + Sync,
+        T: num_traits::Float
+            + num_traits::NumCast
+            + std::ops::AddAssign
+            + std::iter::Sum
+            + Send
+            + Sync,
     {
         let read_guard = self.0.read_inner();
         let data = read_guard.deref();
@@ -89,7 +104,12 @@ impl ComputeSum for IMArrayElement {
 
     fn sum_chunk<T>(&self, direction: &Direction, reference: &mut [T]) -> anyhow::Result<()>
     where
-        T: num_traits::Float + num_traits::NumCast + std::ops::AddAssign + std::iter::Sum + Send + Sync,
+        T: num_traits::Float
+            + num_traits::NumCast
+            + std::ops::AddAssign
+            + std::iter::Sum
+            + Send
+            + Sync,
     {
         let read_guard = self.0.read_inner();
         let data = read_guard.deref();
@@ -127,8 +147,15 @@ impl ComputeVariance for IMArrayElement {
             + num_traits::Unsigned
             + num_traits::Zero
             + std::ops::AddAssign
-            + Into<T> + Send + Sync,
-        T: num_traits::Float + num_traits::NumCast + std::ops::AddAssign + std::iter::Sum + Send + Sync,
+            + Into<T>
+            + Send
+            + Sync,
+        T: num_traits::Float
+            + num_traits::NumCast
+            + std::ops::AddAssign
+            + std::iter::Sum
+            + Send
+            + Sync,
     {
         let read_guard = self.0.read_inner();
 
@@ -150,8 +177,15 @@ impl ComputeVariance for IMArrayElement {
             + num_traits::Unsigned
             + num_traits::Zero
             + std::ops::AddAssign
-            + Into<T> + Send + Sync,
-        T: num_traits::Float + num_traits::NumCast + std::ops::AddAssign + std::iter::Sum + Send + Sync,
+            + Into<T>
+            + Send
+            + Sync,
+        T: num_traits::Float
+            + num_traits::NumCast
+            + std::ops::AddAssign
+            + std::iter::Sum
+            + Send
+            + Sync,
     {
         let read_guard = self.0.read_inner();
 

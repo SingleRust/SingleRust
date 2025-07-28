@@ -17,24 +17,16 @@ pub fn target_type_float_need_conversion_in_memory(
     matrix_datatype: &DataType,
 ) -> anyhow::Result<bool> {
     match matrix_datatype {
-        DataType::Array(scalar_type) => {
-            need_conversion_target_float_type(scalar_type)
-        }
-        DataType::CsrMatrix(scalar_type) => {
-            need_conversion_target_float_type(scalar_type)
-        }
-        DataType::CscMatrix(scalar_type) => {
-            need_conversion_target_float_type(scalar_type)
-        }
+        DataType::Array(scalar_type) => need_conversion_target_float_type(scalar_type),
+        DataType::CsrMatrix(scalar_type) => need_conversion_target_float_type(scalar_type),
+        DataType::CscMatrix(scalar_type) => need_conversion_target_float_type(scalar_type),
         DataType::DataFrame => {
             bail!("Cannot use a matrix of type <DataFrame> in the normalization procedure.")
         }
         DataType::Mapping => {
             bail!("Cannot use a matrix of type <Mapping> in the normalization procedure.")
         }
-        DataType::Scalar(scalar_type) => {
-            need_conversion_target_float_type(scalar_type)
-        }
+        DataType::Scalar(scalar_type) => need_conversion_target_float_type(scalar_type),
         DataType::Categorical => {
             bail!("Cannot use a matrix of type <Categorical> in the normalization procedure.")
         }

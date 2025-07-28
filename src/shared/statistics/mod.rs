@@ -73,5 +73,9 @@ pub trait ComputeNTop {
 }
 
 pub trait ComputeTopSegmentProportions {
-    fn top_segment_proportions(&self, direction: &Direction, ns: &[usize]) -> anyhow::Result<ndarray::Array2<f64>>;
+    fn top_segment_proportions(
+        &self,
+        direction: &Direction,
+        ns: &[usize],
+    ) -> anyhow::Result<ndarray::Array2<f64>>;
 }

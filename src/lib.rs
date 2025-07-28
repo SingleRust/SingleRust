@@ -16,4 +16,3 @@ pub use shared::statistics::ComputeMinMax;
 pub use shared::statistics::ComputeNonZero;
 pub use shared::statistics::ComputeSum;
 pub use shared::statistics::ComputeVariance;
-

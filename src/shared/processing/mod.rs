@@ -89,10 +89,39 @@ pub fn standardize_log(x: f64, mu: f64, sigma: f64) -> f64 {
 }
 
 pub fn standardize_log_form_vec(vec: &[f64]) -> Vec<f64> {
-    let n = vec.len() as f64;
-    let mu: f64 = vec.iter().sum::<f64>() / n;
-    let sigma = (vec.iter().map(|x| (x - mu).powi(2)).sum::<f64>() / n).sqrt();
-    vec.iter().map(|&x| standardize_log(x, mu, sigma)).collect()
+    // Filter out non-finite values for statistics calculation
+    let finite_values: Vec<f64> = vec.iter().filter(|x| x.is_finite()).copied().collect();
+    
+    let n = finite_values.len() as f64;
+    if n <= 1.0 {
+        // If we have too few finite values, return zeros
+        println!("DEBUG: Too few finite values ({}) for standardization, returning zeros", n);
+        return vec![0.0; vec.len()];
+    }
+    
+    let mu: f64 = finite_values.iter().sum::<f64>() / n;
+    let sigma = (finite_values.iter().map(|x| (x - mu).powi(2)).sum::<f64>() / (n - 1.0)).sqrt();
+    
+    // Debug the standardization process
+    let finite_count = vec.iter().filter(|x| x.is_finite()).count();
+    let nan_count = vec.iter().filter(|x| x.is_nan()).count();
+    let inf_count = vec.iter().filter(|x| x.is_infinite()).count();
+    println!("DEBUG Standardization: n={}, mu={:.6}, sigma={:.6}, finite={}, nan={}, inf={}", 
+             vec.len(), mu, sigma, finite_count, nan_count, inf_count);
+    
+    if !sigma.is_finite() || sigma == 0.0 {
+        println!("DEBUG: Sigma is problematic, returning zeros");
+        return vec![0.0; vec.len()];
+    }
+    
+    // Standardize all values, but only finite ones get proper standardization
+    vec.iter().map(|&x| {
+        if x.is_finite() {
+            standardize_log(x, mu, sigma)
+        } else {
+            0.0  // Non-finite values get zero standardized score
+        }
+    }).collect()
 }
 
 pub fn normalize_per_bin(
@@ -264,32 +293,49 @@ pub fn fit_svr(x: &[f64], y: &[f64]) -> anyhow::Result<(Vec<f64>, Vec<f64>)> {
     Ok((residuals, y_pred))
 }
 
-
-pub fn get_mean_bins(
-    log_means: &[f64],
-    n_bins: usize,
-) -> anyhow::Result<(Vec<usize>, Vec<usize>)> {
-    let min_mean = log_means.iter().fold(f64::INFINITY, |a, &b| a.min(b));
-    let max_mean = log_means.iter().fold(f64::NEG_INFINITY, |a, &b| a.max(b));
-
-    let bin_width = if (max_mean - min_mean).abs() < f64::EPSILON {
-        1.0
-    } else {
-        (max_mean - min_mean) / n_bins as f64
-    };
-
+pub fn get_mean_bins(log_means: &[f64], n_bins: usize) -> anyhow::Result<(Vec<usize>, Vec<usize>)> {
+    // Use quantile-based binning instead of equal-width binning
+    // This ensures each bin has roughly the same number of genes
+    
+    let mut sorted_means: Vec<(usize, f64)> = log_means
+        .iter()
+        .enumerate()
+        .map(|(i, &mean)| (i, mean))
+        .collect();
+    
+    // Sort by log_means values
+    sorted_means.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+    
+    let n_genes = log_means.len();
+    let genes_per_bin = n_genes / n_bins;
+    let remainder = n_genes % n_bins;
+    
     let mut bin_indices = vec![0; log_means.len()];
     let mut mean_bins = vec![0; n_bins];
-
-    for (i, &mean) in log_means.iter().enumerate() {
-        let mut bin_idx = ((mean - min_mean) / bin_width).floor() as usize;
-        if bin_idx >= n_bins {
-            bin_idx = n_bins - 1;
+    
+    let mut current_gene_idx = 0;
+    
+    for bin_idx in 0..n_bins {
+        // Calculate how many genes should be in this bin
+        // First 'remainder' bins get one extra gene
+        let genes_in_this_bin = if bin_idx < remainder {
+            genes_per_bin + 1
+        } else {
+            genes_per_bin
+        };
+        
+        // Assign genes to this bin
+        for _ in 0..genes_in_this_bin {
+            if current_gene_idx < sorted_means.len() {
+                let original_idx = sorted_means[current_gene_idx].0;
+                bin_indices[original_idx] = bin_idx;
+                current_gene_idx += 1;
+            }
         }
-        bin_indices[i] = bin_idx;
-        mean_bins[bin_idx] += 1;
+        
+        mean_bins[bin_idx] = genes_in_this_bin;
     }
-
+    
     Ok((mean_bins, bin_indices))
 }
 
@@ -318,7 +364,13 @@ pub fn calculate_dispersion_stats(
             bin_means[bin_idx] = bin_sums[bin_idx] / count;
 
             if count > 1.0 {
-                bin_stds[bin_idx] = ((bin_sum_squares[bin_idx] - bin_sums[bin_idx].powi(2) / count) / (count - 1.0)).sqrt();
+                let variance = (bin_sum_squares[bin_idx]
+                    - bin_sums[bin_idx].powi(2) / count)
+                    / (count - 1.0);
+                
+                // Add small epsilon to prevent zero standard deviation
+                let min_variance = 1e-12;
+                bin_stds[bin_idx] = (variance.max(min_variance)).sqrt();
             } else {
                 bin_stds[bin_idx] = f64::NAN;
             }

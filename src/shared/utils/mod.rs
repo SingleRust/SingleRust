@@ -1,7 +1,10 @@
 use anndata::data::SelectInfoElem;
 use ndarray::Slice;
 
-pub(crate) fn select_info_elem_to_indices(elem: &SelectInfoElem, bound: usize) -> anyhow::Result<Vec<usize>> {
+pub(crate) fn select_info_elem_to_indices(
+    elem: &SelectInfoElem,
+    bound: usize,
+) -> anyhow::Result<Vec<usize>> {
     match elem {
         SelectInfoElem::Index(indices) => {
             // For Index, we just need to verify that all indices are within bounds
@@ -11,14 +14,19 @@ pub(crate) fn select_info_elem_to_indices(elem: &SelectInfoElem, bound: usize) -
                 }
             }
             Ok(indices.clone())
-        },
+        }
         SelectInfoElem::Slice(slice) => {
             let Slice { start, end, step } = *slice;
             let end = end.unwrap_or(bound as isize);
-            
+
             // Ensure the slice is within bounds
             if start as usize >= bound || end as usize > bound {
-                anyhow::bail!("Slice out of bounds: start={}, end={}, bound={}", start, end, bound);
+                anyhow::bail!(
+                    "Slice out of bounds: start={}, end={}, bound={}",
+                    start,
+                    end,
+                    bound
+                );
             }
 
             // Generate indices based on the slice
