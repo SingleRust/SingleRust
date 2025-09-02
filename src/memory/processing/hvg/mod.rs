@@ -1,7 +1,6 @@
-use crate::shared::processing::{calculate_dispersion_stats, fit_svr, get_mean_bins, standardize_log_form_vec, FlavorType, HVGParams};
+use crate::shared::processing::{fit_svr, standardize_log_form_vec, FlavorType, HVGParams};
 use crate::{ComputeSum, ComputeVariance};
 use anndata_memory::{IMAnnData, IMArrayElement};
-use nalgebra::min;
 use polars::prelude::Column;
 use single_utilities::types::Direction;
 
@@ -23,14 +22,116 @@ fn postprocess_seurat_dispersions(
     bin_means: &mut [f64],
     bin_stds: &mut [f64],
 ) -> anyhow::Result<()> {
+    // This matches Python's _postprocess_dispersions_seurat
     for i in 0..bin_means.len() {
         if bin_stds[i].is_nan() {
+            // For single-gene bins, set std = mean and mean = 0
+            // This effectively sets normalized dispersion to 1
             bin_stds[i] = bin_means[i];
             bin_means[i] = 0.0;
         }
     }
-
     Ok(())
+}
+
+fn equal_width_binning(log_means: &[f64], n_bins: usize) -> anyhow::Result<(Vec<usize>, Vec<f64>)> {
+    // Find min and max (excluding NaN)
+    let mut valid_means: Vec<f64> = log_means
+        .iter()
+        .filter(|x| x.is_finite())
+        .copied()
+        .collect();
+
+    if valid_means.is_empty() {
+        return Err(anyhow::anyhow!("No valid mean values found"));
+    }
+
+    valid_means.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    let min_mean = valid_means[0];
+    let max_mean = valid_means[valid_means.len() - 1];
+
+    // Create equal-width bins
+    let bin_width = (max_mean - min_mean) / n_bins as f64;
+    let mut bin_edges = vec![0.0; n_bins + 1];
+
+    for (i, edge) in bin_edges.iter_mut().enumerate().take(n_bins + 1) {
+        *edge = min_mean + (i as f64) * bin_width;
+    }
+
+    // Make sure the last edge includes the maximum value
+    bin_edges[n_bins] = max_mean + 1e-10;
+
+    // Assign each gene to a bin
+    let mut bin_indices = vec![0; log_means.len()];
+
+    for (i, &mean) in log_means.iter().enumerate() {
+        if !mean.is_finite() {
+            bin_indices[i] = 0; // Assign NaN/inf to first bin
+            continue;
+        }
+
+        // Find which bin this value belongs to
+        let mut bin_idx = 0;
+        for j in 0..n_bins {
+            if mean >= bin_edges[j] && mean < bin_edges[j + 1] {
+                bin_idx = j;
+                break;
+            }
+        }
+
+        // Handle edge case where mean == max_mean
+        if mean == max_mean {
+            bin_idx = n_bins - 1;
+        }
+
+        bin_indices[i] = bin_idx;
+    }
+
+    Ok((bin_indices, bin_edges))
+}
+
+fn calculate_bin_stats(
+    log_dispersions: &[f64],
+    bin_indices: &[usize],
+    n_bins: usize,
+) -> anyhow::Result<(Vec<f64>, Vec<f64>)> {
+    let mut bin_values: Vec<Vec<f64>> = vec![Vec::new(); n_bins];
+
+    // Collect values for each bin (excluding NaN)
+    for (i, &bin_idx) in bin_indices.iter().enumerate() {
+        let disp = log_dispersions[i];
+        if !disp.is_nan() && bin_idx < n_bins {
+            bin_values[bin_idx].push(disp);
+        }
+    }
+
+    let mut bin_means = vec![0.0; n_bins];
+    let mut bin_stds = vec![0.0; n_bins];
+
+    for bin_idx in 0..n_bins {
+        let values = &bin_values[bin_idx];
+
+        if values.is_empty() {
+            bin_means[bin_idx] = f64::NAN;
+            bin_stds[bin_idx] = f64::NAN;
+        } else if values.len() == 1 {
+            // Single gene in bin - Python sets std to NaN
+            bin_means[bin_idx] = values[0];
+            bin_stds[bin_idx] = f64::NAN;
+        } else {
+            // Calculate mean
+            let mean = values.iter().sum::<f64>() / values.len() as f64;
+            bin_means[bin_idx] = mean;
+
+            // Calculate standard deviation
+            let variance =
+                values.iter().map(|&x| (x - mean).powi(2)).sum::<f64>() / (values.len() - 1) as f64;
+
+            bin_stds[bin_idx] = variance.sqrt();
+        }
+    }
+
+    Ok((bin_means, bin_stds))
 }
 
 fn normalize_dispersions(
@@ -43,13 +144,19 @@ fn normalize_dispersions(
 
     for (i, &disp) in log_dispersions.iter().enumerate() {
         let bin_idx = bin_indices[i];
+
+        if bin_idx >= bin_means.len() {
+            normalized_dispersions[i] = f64::NAN;
+            continue;
+        }
+
         let mean = bin_means[bin_idx];
         let std = bin_stds[bin_idx];
 
-        if !std.is_nan() && std > 0.0 {
-            normalized_dispersions[i] = (disp - mean) / std;
+        if disp.is_nan() || mean.is_nan() || std.is_nan() || std == 0.0 {
+            normalized_dispersions[i] = f64::NAN;
         } else {
-            normalized_dispersions[i] = 0.0;
+            normalized_dispersions[i] = (disp - mean) / std;
         }
     }
 
@@ -57,54 +164,66 @@ fn normalize_dispersions(
 }
 
 fn subset_genes(
-    means: &[f64],
+    log_means: &[f64], // These are already log-transformed
     dispersion_norm: &[f64],
     n_top_genes: Option<usize>,
     min_mean: f64,
     max_mean: f64,
-    min_dispersion: f64
+    min_dispersion: f64,
 ) -> anyhow::Result<Vec<bool>> {
-
-    let mut highly_variable = vec![false; means.len()];
-
-    let valid_by_mean: Vec<bool> = means.iter()
-        .map(|&mean| mean >= min_mean && mean <= max_mean)
-        .collect();
-
-    let clear_dispersions: Vec<f64> = dispersion_norm.iter()
-        .map(|&d| if d.is_nan() {f64::NEG_INFINITY} else {d})
-        .collect();
+    let mut highly_variable = vec![false; log_means.len()];
 
     if let Some(n_top) = n_top_genes {
-        let valid_n_top = min(n_top, means.len());
-
-        let mut valid_dispersions: Vec<f64> = clear_dispersions.iter()
-            .enumerate()
-            .filter(|(i, _)| valid_by_mean[*i])
-            .map(|(_, &d)| d)
-            .filter(|&d| !d.is_nan())
+        // Python's approach for n_top_genes:
+        // 1. First, remove NaN values to compute threshold
+        let non_nan_dispersions: Vec<f64> = dispersion_norm
+            .iter()
+            .filter(|&&d| !d.is_nan())
+            .copied()
             .collect();
 
-        if valid_n_top > valid_dispersions.len() {
-            for i in 0..means.len() {
-                if valid_by_mean[i] && !clear_dispersions[i].is_nan() {
-                    highly_variable[i] = true;
-                }
-            }
-        } else {
-            valid_dispersions.sort_by(|a, b| b.partial_cmp(a).unwrap_or(std::cmp::Ordering::Equal));
+        if non_nan_dispersions.is_empty() {
+            return Ok(highly_variable);
+        }
 
-            let cutoff = valid_dispersions[valid_n_top - 1];
+        // Find the nth highest value
+        let n_to_select = n_top.min(non_nan_dispersions.len());
+        let mut sorted_dispersions = non_nan_dispersions.clone();
+        sorted_dispersions.sort_by(|a, b| b.partial_cmp(a).unwrap_or(std::cmp::Ordering::Equal));
 
-            for i in 0..means.len() {
-                highly_variable[i] = valid_by_mean[i] && clear_dispersions[i] >= cutoff;
+        let threshold = sorted_dispersions[n_to_select - 1];
+
+        // 2. Now apply threshold to nan_to_num version (NaN → -inf)
+        for i in 0..dispersion_norm.len() {
+            let disp_value = if dispersion_norm[i].is_nan() {
+                f64::NEG_INFINITY // Python uses -inf for NaN in final selection
+            } else {
+                dispersion_norm[i]
+            };
+
+            if disp_value >= threshold {
+                highly_variable[i] = true;
             }
         }
     } else {
-        for i in 0..means.len() {
-            highly_variable[i] = valid_by_mean[i] && clear_dispersions[i] > min_dispersion;
+        // Original cutoff-based selection
+        // Python applies nan_to_num (NaN → 0) before checking bounds
+        let clean_dispersions: Vec<f64> = dispersion_norm
+            .iter()
+            .map(|&d| if d.is_nan() { 0.0 } else { d })
+            .collect();
+
+        // Apply mean filters
+        let valid_by_mean: Vec<bool> = log_means
+            .iter()
+            .map(|&log_mean| log_mean > min_mean && log_mean < max_mean)
+            .collect();
+
+        for i in 0..log_means.len() {
+            highly_variable[i] = valid_by_mean[i] && clean_dispersions[i] > min_dispersion;
         }
     }
+
     Ok(highly_variable)
 }
 
@@ -114,7 +233,9 @@ fn compute_seurat_hvg(
     params: HVGParams,
 ) -> anyhow::Result<()> {
     let n_obs = adata.n_obs();
-    let means: Vec<f64> = x
+
+    // Calculate means from raw counts
+    let raw_means: Vec<f64> = x
         .sum_whole(&Direction::COLUMN)?
         .iter()
         .map(|sum: &f64| sum / n_obs as f64)
@@ -122,46 +243,67 @@ fn compute_seurat_hvg(
 
     let variances: Vec<f64> = x.variance_whole::<u32, f64>(&Direction::COLUMN)?;
 
-    let dispersions: Vec<f64> = means
+    // Calculate dispersions with proper handling of zero means
+    let dispersions: Vec<f64> = raw_means
         .iter()
         .zip(variances.iter())
-        .map(|(&mean, &var)| if mean > 0.0 { var / mean } else { var / 1e-12 }) // handle similar to scanpy
+        .map(|(&mean, &var)| {
+            let safe_mean = if mean > 1e-12 { mean } else { 1e-12 };
+            var / safe_mean
+        })
         .collect();
-    let log_means: Vec<f64> = means.iter().map(|&x| (x+1.0).ln()).collect();
-    let log_dispersions: Vec<f64> = dispersions.iter().map(|&x| x.ln()).collect();
+
+    // For Seurat flavor, use log1p of means for binning and storage
+    // This matches what Python does AFTER reverting log normalization
+    let log1p_means: Vec<f64> = raw_means.iter().map(|&x| (x + 1.0).ln()).collect();
+
+    // Log dispersions with NaN for zero dispersions (matching Python)
+    let log_dispersions: Vec<f64> = dispersions
+        .iter()
+        .map(|&x| {
+            if x > 0.0 {
+                x.ln()
+            } else {
+                f64::NAN // Python sets dispersion[dispersion == 0] = np.nan
+            }
+        })
+        .collect();
 
     let n_bins = params.n_bins;
-    let (mean_bins, bin_indices) = get_mean_bins(&log_means, n_bins)?;
 
-    let (mut bin_means, mut bin_stds) = calculate_dispersion_stats(&log_dispersions, &bin_indices, &mean_bins)?;
+    // Use equal-width binning on log1p_means (like Python's pd.cut)
+    let (bin_indices, _) = equal_width_binning(&log1p_means, n_bins)?;
 
+    // Calculate mean and std for each bin
+    let (mut bin_means, mut bin_stds) =
+        calculate_bin_stats(&log_dispersions, &bin_indices, n_bins)?;
+
+    // Handle single-gene bins (like Python's _postprocess_dispersions_seurat)
     postprocess_seurat_dispersions(&mut bin_means, &mut bin_stds)?;
 
-    let normalized_dispersions = normalize_dispersions(&log_dispersions, &bin_indices, &bin_means, &bin_stds)?;
+    // Normalize dispersions
+    let normalized_dispersions =
+        normalize_dispersions(&log_dispersions, &bin_indices, &bin_means, &bin_stds)?;
 
-    let standardized_dispersions = standardize_log_form_vec(&normalized_dispersions);
-
+    // Select highly variable genes using raw means for filtering
     let highly_variable = subset_genes(
-        &means,
-        &standardized_dispersions,
+        &log1p_means, // Pass log-transformed means
+        &normalized_dispersions,
         params.n_top_genes,
         params.min_mean,
         params.max_mean,
         params.min_dispersion,
     )?;
 
+    // Store results - IMPORTANT: Store log1p means to match Python
     let mut var_df = adata.var().get_data();
-    var_df.with_column(Column::new("means".into(), log_means))?;
-    var_df.with_column(Column::new("dispersions".into(), log_dispersions))?;
+    var_df.with_column(Column::new("means".into(), log1p_means))?; // Store log1p means like Python
+    var_df.with_column(Column::new("dispersions".into(), log_dispersions))?; // Store log dispersions
     var_df.with_column(Column::new(
         "dispersions_norm".into(),
         normalized_dispersions,
     ))?;
     var_df.with_column(Column::new("highly_variable".into(), highly_variable))?;
-    var_df.with_column(Column::new(
-        "dispersions_normalized_standardized".into(),
-        standardized_dispersions,
-    ))?;
 
     adata.var().set_data(var_df)
 }
@@ -175,13 +317,6 @@ fn compute_cell_ranger_hvg(
 }
 
 fn compute_svr_hvg(adata: &IMAnnData, x: &IMArrayElement, params: HVGParams) -> anyhow::Result<()> {
-    let n_obs = adata.n_obs();
-    let means: Vec<f64> = x
-        .sum_whole(&Direction::COLUMN)?
-        .iter()
-        .map(|sum: &f64| sum / n_obs as f64)
-        .collect();
-
     let n_obs = adata.n_obs();
     let means: Vec<f64> = x
         .sum_whole(&Direction::COLUMN)?

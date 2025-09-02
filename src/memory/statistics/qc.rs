@@ -3,7 +3,7 @@ use num_traits::Float;
 use polars::{frame::DataFrame, prelude::Column};
 use single_utilities::types::Direction;
 
-use crate::{shared::statistics::ComputeTopSegmentProportions, ComputeNonZero, ComputeSum};
+use crate::{ComputeNonZero, ComputeSum};
 
 fn describe_obs(
     adata: &IMAnnData,
@@ -106,7 +106,7 @@ fn describe_var(
     adata: &IMAnnData,
     x: &anndata_memory::IMArrayElement,
     expr_type: &str,
-    var_type: &str,
+    _var_type: &str,
     log1p: bool,
 ) -> anyhow::Result<DataFrame> {
     let n_obs = adata.n_obs();
@@ -152,6 +152,7 @@ fn describe_var(
     DataFrame::new(columns).map_err(Into::into)
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn calculate_qc_metrics(
     adata: &IMAnnData,
     expr_type: Option<&str>,
@@ -209,14 +210,15 @@ pub fn calculate_qc_metrics(
 
 pub fn qc_metrics(adata: &IMAnnData) -> anyhow::Result<()> {
     let var_names = adata.var_names();
-    let mito_mask: Vec<bool> = var_names.iter()
+    let mito_mask: Vec<bool> = var_names
+        .iter()
         .map(|name| name.starts_with("MT-") || name.starts_with("mt-"))
         .collect();
-    
+
     let mut var_df = adata.var().get_data();
     var_df.with_column(Column::new("mito".into(), mito_mask))?;
     adata.var().set_data(var_df)?;
-    
+
     calculate_qc_metrics(
         adata,
         Some("counts"),
@@ -228,6 +230,6 @@ pub fn qc_metrics(adata: &IMAnnData) -> anyhow::Result<()> {
         true,
         true,
     )?;
-    
+
     Ok(())
 }

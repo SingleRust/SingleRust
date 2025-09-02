@@ -13,28 +13,20 @@ use num_traits::{Float, Num, NumCast};
 use polars::prelude::DataFrame;
 use single_utilities::traits::NumericOps;
 
-pub fn target_type_float_need_conversion_in_memory(
+pub fn _target_type_float_need_conversion_in_memory(
     matrix_datatype: &DataType,
 ) -> anyhow::Result<bool> {
     match matrix_datatype {
-        DataType::Array(scalar_type) => {
-            need_conversion_target_float_type(scalar_type)
-        }
-        DataType::CsrMatrix(scalar_type) => {
-            need_conversion_target_float_type(scalar_type)
-        }
-        DataType::CscMatrix(scalar_type) => {
-            need_conversion_target_float_type(scalar_type)
-        }
+        DataType::Array(scalar_type) => need_conversion_target_float_type(scalar_type),
+        DataType::CsrMatrix(scalar_type) => need_conversion_target_float_type(scalar_type),
+        DataType::CscMatrix(scalar_type) => need_conversion_target_float_type(scalar_type),
         DataType::DataFrame => {
             bail!("Cannot use a matrix of type <DataFrame> in the normalization procedure.")
         }
         DataType::Mapping => {
             bail!("Cannot use a matrix of type <Mapping> in the normalization procedure.")
         }
-        DataType::Scalar(scalar_type) => {
-            need_conversion_target_float_type(scalar_type)
-        }
+        DataType::Scalar(scalar_type) => need_conversion_target_float_type(scalar_type),
         DataType::Categorical => {
             bail!("Cannot use a matrix of type <Categorical> in the normalization procedure.")
         }
@@ -48,11 +40,7 @@ pub fn convert_to_float_if_non_float_type(
     matrix: &IMArrayElement,
     precision: Option<Precision>,
 ) -> anyhow::Result<()> {
-    let matrix_data_type = matrix.get_type()?;
-    let precision = match precision {
-        Some(prec) => prec,
-        None => Precision::default(),
-    };
+    let precision = precision.unwrap_or_default();
 
     // For now discarded, as we want to convert f32 -> f64 and f64 -> f32 in case this becomes necessary
     //let need_to_convert_type = target_type_float_need_conversion_in_memory(&matrix_data_type)?;
@@ -62,7 +50,7 @@ pub fn convert_to_float_if_non_float_type(
     //}
 
     let mut write_guard = matrix.0.write_inner();
-    let mut data = write_guard.deref_mut();
+    let data = write_guard.deref_mut();
 
     let dummy_data: Array2<f64> = Array2::zeros((0, 0));
     let dummy_array_data = ArrayData::Array(DynArray::from(dummy_data));

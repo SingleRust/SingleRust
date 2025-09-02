@@ -1,27 +1,27 @@
-use ndarray::parallel::prelude::IndexedParallelIterator;
-use crate::memory::utils::{create_dataframe_from_map, create_string_dataframe_from_map};
+use std::cmp::Ordering;
+use std::collections::HashMap;
+use std::ops::Deref;
+
 use anndata::data::{DynCsrMatrix, DynScalar};
 use anndata::{ArrayData, Data};
 use anndata_memory::{IMAnnData, IMElement};
 use nalgebra_sparse::CsrMatrix;
-use ndarray::parallel::prelude::IntoParallelIterator;
-use ndarray::parallel::prelude::ParallelIterator;
-use num_traits::{NumCast};
-use num_traits::Float;
-use polars::datatypes::CategoricalOrdering;
-use polars::datatypes::DataType;
+use ndarray::parallel::prelude::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator};
+use polars::datatypes::{CategoricalOrdering, DataType};
 use single_statistics::testing::correction::{
     benjamini_hochberg_correction, benjamini_yekutieli_correction, bonferroni_correction,
     hochberg_correction, holm_bonferroni_correction, storey_qvalues,
 };
 use single_statistics::testing::inference::nonparametric::mann_whitney;
-use single_statistics::testing::inference::parametric::t_test;
+use single_statistics::testing::inference::parametric::fast_t_test_from_sums;
 use single_statistics::testing::inference::MatrixStatTests;
 use single_statistics::testing::{Alternative, TTestType, TestMethod, TestResult};
 use single_utilities::traits::{FloatOps, FloatOpsTS};
-use std::cmp::Ordering;
-use std::collections::HashMap;
-use std::ops::Deref;
+
+use crate::memory::utils::{create_dataframe_from_map, create_string_dataframe_from_map};
+
+/// Chunk size for parallel processing of statistical tests
+const PARALLEL_CHUNK_SIZE: usize = 64;
 
 #[derive(Clone)]
 pub enum CorrectionMethod {
@@ -33,6 +33,55 @@ pub enum CorrectionMethod {
     StoreyQValue,
 }
 
+/// Perform differential expression analysis between groups of cells.
+///
+/// This function implements the rank genes groups functionality similar to scanpy's `rank_genes_groups`.
+/// It identifies genes that are differentially expressed between specified groups and a reference group.
+///
+/// # Arguments
+///
+/// * `adata` - The AnnData object containing gene expression data
+/// * `groupby` - Column name in `adata.obs` that contains group labels
+/// * `reference` - Reference group name, or "rest" to use all other cells, or None for automatic selection
+/// * `groups` - Specific groups to test, or None to test all groups
+/// * `key_added` - Key prefix for storing results in `adata.uns`, defaults to "rank_genes_groups"
+/// * `method` - Statistical test method (t-test or Mann-Whitney), defaults to Welch's t-test
+/// * `n_genes` - Maximum number of genes to return per group, defaults to all genes
+/// * `correction_method` - Multiple testing correction method
+/// * `compute_logfoldchanges` - Whether to compute log fold changes, defaults to true
+/// * `pseudocount` - Pseudocount for log fold change calculation, defaults to 1.0
+///
+/// # Returns
+///
+/// Results are stored in `adata.uns` with the following keys:
+/// - `{key}_scores`: Test statistics
+/// - `{key}_pvals`: Raw p-values
+/// - `{key}_pvals_adj`: Adjusted p-values
+/// - `{key}_logfoldchanges`: Log fold changes (if computed)
+/// - `{key}_names`: Gene names ranked by significance
+/// - `{key}_params_*`: Parameters used for the analysis
+///
+/// # Examples
+///
+/// ```rust,ignore
+/// use single_rust::memory::processing::diffexp::{rank_gene_groups, CorrectionMethod};
+/// use single_statistics::testing::{TestMethod, TTestType};
+///
+/// // Basic usage
+/// rank_gene_groups(
+///     &adata,
+///     "cell_type",
+///     Some("rest"),
+///     None,
+///     None,
+///     None,
+///     None,
+///     CorrectionMethod::BejaminiHochberg,
+///     None,
+///     None,
+/// )?;
+/// ```
+#[allow(clippy::too_many_arguments)]
 pub fn rank_gene_groups(
     adata: &IMAnnData,
     groupby: &str,
@@ -88,7 +137,11 @@ pub fn rank_gene_groups(
                 n_genes,
                 &var_names,
             )?,
-            _ => todo!(),
+            _ => {
+                return Err(anyhow::anyhow!(
+                    "Unsupported matrix data type. Only F32 and F64 CSR matrices are supported."
+                ));
+            }
         },
         other => unimplemented!(
             "This feature is currently not implemented for a matrix of type {:?}",
@@ -121,6 +174,7 @@ struct DifferentialExpressionResults {
     gene_names: HashMap<String, Vec<String>>,
 }
 
+#[allow(clippy::too_many_arguments)]
 fn run_differential_expression<T>(
     adata: &IMAnnData,
     csr_matrix: &CsrMatrix<T>,
@@ -152,7 +206,7 @@ where
                 all_indices.retain(|&idx| !group_indices.contains(&idx));
 
                 if all_indices.is_empty() {
-                    return Err(anyhow::anyhow!("No cells fround in reference group: rest"));
+                    return Err(anyhow::anyhow!("No cells found in reference group: rest"));
                 }
                 all_indices
             }
@@ -171,38 +225,10 @@ where
             var_names,
         )?;
 
-        scores_map.insert(
-            group.clone(),
-            group_results
-                .scores
-                .into_iter()
-                .map(|x| x.to_f64().unwrap_or(0.0))
-                .collect(),
-        );
-        pvals_map.insert(
-            group.clone(),
-            group_results
-                .pvals
-                .into_iter()
-                .map(|x| x.to_f64().unwrap_or(0.0))
-                .collect(),
-        );
-        pvals_adj_map.insert(
-            group.clone(),
-            group_results
-                .pvals_adj
-                .into_iter()
-                .map(|x| x.to_f64().unwrap_or(0.0))
-                .collect(),
-        );
-        logfoldchanges_map.insert(
-            group.clone(),
-            group_results
-                .logfoldchanges
-                .into_iter()
-                .map(|x| x.to_f64().unwrap_or(0.0))
-                .collect(),
-        );
+        scores_map.insert(group.clone(), group_results.scores);
+        pvals_map.insert(group.clone(), group_results.pvals);
+        pvals_adj_map.insert(group.clone(), group_results.pvals_adj);
+        logfoldchanges_map.insert(group.clone(), group_results.logfoldchanges);
         gene_names_map.insert(group.clone(), group_results.gene_names);
     }
 
@@ -215,17 +241,15 @@ where
     })
 }
 
-struct GroupTestResults<T>
-where
-    T: FloatOps,
-{
-    scores: Vec<T>,
-    pvals: Vec<T>,
-    pvals_adj: Vec<T>,
-    logfoldchanges: Vec<T>,
+struct GroupTestResults {
+    scores: Vec<f64>,
+    pvals: Vec<f64>,
+    pvals_adj: Vec<f64>,
+    logfoldchanges: Vec<f64>,
     gene_names: Vec<String>,
 }
 
+#[allow(clippy::too_many_arguments)]
 fn run_tests_for_group<T>(
     csr_matrix: &CsrMatrix<T>,
     group_indices: &[usize],
@@ -236,97 +260,127 @@ fn run_tests_for_group<T>(
     pseudocount: f64,
     n_genes: usize,
     var_names: &[String],
-) -> anyhow::Result<GroupTestResults<T>>
+) -> anyhow::Result<GroupTestResults>
 where
     T: FloatOpsTS,
     CsrMatrix<T>: MatrixStatTests<T>,
 {
     let n_cols = csr_matrix.ncols();
     let n_rows = csr_matrix.nrows();
-    let pseudocount = T::from(pseudocount).unwrap();
-    
-    let group_size = T::from(group_indices.len()).unwrap();
-    let ref_size = T::from(reference_indices.len()).unwrap();
-    let group_inv = T::one() / group_size;
-    let ref_inv = T::one() / ref_size;
-    
-    let group_set: std::collections::HashSet<usize> = group_indices.iter().copied().collect();
-    let ref_set: std::collections::HashSet<usize> = reference_indices.iter().copied().collect();
-    
-    let mut scores = Vec::with_capacity(n_cols);
-    let mut pvals = Vec::with_capacity(n_cols);
-    let mut logfoldchanges = Vec::with_capacity(n_cols);
-    
-    let mut group_sums = vec![T::zero(); n_cols];
-    let mut ref_sums = vec![T::zero(); n_cols];
-    let mut group_values_per_col: Vec<Vec<T>> =
-        vec![Vec::with_capacity(group_indices.len()); n_cols];
-    let mut ref_values_per_col: Vec<Vec<T>> =
-        vec![Vec::with_capacity(reference_indices.len()); n_cols];
-    
-    for row in 0..n_rows {
-        let is_group = group_set.contains(&row);
-        let is_ref = ref_set.contains(&row);
 
-        if !is_group && !is_ref {
+    let group_size_f64 = group_indices.len() as f64;
+    let ref_size_f64 = reference_indices.len() as f64;
+
+    let mut scores: Vec<f64> = Vec::with_capacity(n_cols);
+    let mut pvals: Vec<f64> = Vec::with_capacity(n_cols);
+    let mut logfoldchanges: Vec<f64> = Vec::with_capacity(n_cols);
+
+    let mut group_sums_f64 = vec![0.0f64; n_cols];
+    let mut ref_sums_f64 = vec![0.0f64; n_cols];
+    let mut group_sum_sq_f64 = vec![0.0f64; n_cols];
+    let mut ref_sum_sq_f64 = vec![0.0f64; n_cols];
+
+    let mut is_group = vec![false; n_rows];
+    let mut is_ref = vec![false; n_rows];
+
+    for &idx in group_indices {
+        is_group[idx] = true;
+    }
+    for &idx in reference_indices {
+        is_ref[idx] = true;
+    }
+
+    for row in 0..n_rows {
+        let row_is_group = is_group[row];
+        let row_is_ref = is_ref[row];
+
+        if !row_is_group && !row_is_ref {
             continue;
         }
-        
-        if let row_data = csr_matrix.row(row) {
-            for (&col, &value) in row_data.col_indices().iter().zip(row_data.values()) {
-                if is_group {
-                    group_sums[col] += value;
-                    group_values_per_col[col].push(value);
-                }
-                if is_ref {
-                    ref_sums[col] += value;
-                    ref_values_per_col[col].push(value);
-                }
+
+        let row_data = csr_matrix.row(row);
+        for (&col, &value) in row_data.col_indices().iter().zip(row_data.values()) {
+            let value_f64 = value.to_f64().unwrap_or(0.0);
+            if row_is_group {
+                group_sums_f64[col] += value_f64;
+                group_sum_sq_f64[col] += value_f64 * value_f64;
+            }
+            if row_is_ref {
+                ref_sums_f64[col] += value_f64;
+                ref_sum_sq_f64[col] += value_f64 * value_f64;
             }
         }
     }
-    
-    const CHUNK_SIZE: usize = 64; 
 
-    let chunk_results: Vec<Vec<(T, T, T)>> = (0..n_cols)
+    let chunk_results: Vec<Vec<(f64, f64, f64)>> = (0..n_cols)
         .into_par_iter()
-        .chunks(CHUNK_SIZE)
+        .chunks(PARALLEL_CHUNK_SIZE)
         .map(|chunk| {
             let mut chunk_scores = Vec::with_capacity(chunk.len());
             let mut chunk_pvals = Vec::with_capacity(chunk.len());
             let mut chunk_lfcs = Vec::with_capacity(chunk.len());
 
             for col in chunk {
-                let group_values = &group_values_per_col[col];
-                let ref_values = &ref_values_per_col[col];
-                
-                let mut padded_group_values = group_values.clone();
-                let mut padded_ref_values = ref_values.clone();
+                let group_mean = group_sums_f64[col] / group_size_f64;
+                let ref_mean = ref_sums_f64[col] / ref_size_f64;
 
-                padded_group_values.resize(group_indices.len(), T::zero());
-                padded_ref_values.resize(reference_indices.len(), T::zero());
-                
-                let test_result = match method {
-                    TestMethod::TTest(test_type) => t_test(
-                        &padded_group_values,
-                        &padded_ref_values,
-                        test_type,
-                        Alternative::TwoSided,
-                    ),
-                    TestMethod::MannWhitney => mann_whitney(
-                        &padded_group_values,
-                        &padded_ref_values,
-                        Alternative::TwoSided,
-                    ),
-                    _ => TestResult::new(T::zero(), T::one()),
-                };
-                
-                let log_fc = if compute_lfc {
-                    let mean_group = group_sums[col] * group_inv + pseudocount;
-                    let mean_ref = ref_sums[col] * ref_inv + pseudocount;
-                    (mean_group / mean_ref).log2()
+                let test_result = if group_mean == 0.0 && ref_mean == 0.0 {
+                    TestResult::new(0.0, 1.0)
                 } else {
-                    T::zero()
+                    match method {
+                        TestMethod::TTest(test_type) => {
+                            // Use optimized t-test with pre-computed statistics
+                            fast_t_test_from_sums(
+                                group_sums_f64[col],
+                                group_sum_sq_f64[col],
+                                group_size_f64,
+                                ref_sums_f64[col],
+                                ref_sum_sq_f64[col],
+                                ref_size_f64,
+                                test_type,
+                            )
+                        }
+                        TestMethod::MannWhitney => {
+                            // For Mann-Whitney, we still need individual values
+                            let mut group_values_f64 = Vec::with_capacity(group_indices.len());
+                            let mut ref_values_f64 = Vec::with_capacity(reference_indices.len());
+
+                            for &row_idx in group_indices {
+                                let value = if let Some(entry) = csr_matrix.get_entry(row_idx, col)
+                                {
+                                    entry.into_value().to_f64().unwrap_or(0.0)
+                                } else {
+                                    0.0
+                                };
+                                group_values_f64.push(value);
+                            }
+
+                            for &row_idx in reference_indices {
+                                let value = if let Some(entry) = csr_matrix.get_entry(row_idx, col)
+                                {
+                                    entry.into_value().to_f64().unwrap_or(0.0)
+                                } else {
+                                    0.0
+                                };
+                                ref_values_f64.push(value);
+                            }
+
+                            mann_whitney(&group_values_f64, &ref_values_f64, Alternative::TwoSided)
+                        }
+                        _ => TestResult::new(0.0, 1.0),
+                    }
+                };
+
+                let log_fc = if compute_lfc {
+                    if group_mean == 0.0 && ref_mean == 0.0 {
+                        0.0
+                    } else {
+                        let linear_group_mean = group_mean.exp() - 1.0 + pseudocount;
+                        let linear_ref_mean = ref_mean.exp() - 1.0 + pseudocount;
+                        (linear_group_mean / linear_ref_mean).log2()
+                    }
+                } else {
+                    0.0
                 };
 
                 chunk_scores.push(test_result.statistic);
@@ -342,7 +396,7 @@ where
                 .collect()
         })
         .collect();
-    
+
     for chunk in chunk_results {
         for (score, pval, lfc) in chunk {
             scores.push(score);
@@ -350,30 +404,26 @@ where
             logfoldchanges.push(lfc);
         }
     }
-    
+
     let pvals_adj = apply_correction(&pvals, correction_method)?;
-    
+
     let mut gene_indices: Vec<usize> = (0..pvals_adj.len()).collect();
-    
-    gene_indices.sort_unstable_by(|&a, &b| {
-        match pvals_adj[a].partial_cmp(&pvals_adj[b]) {
-            Some(Ordering::Equal) => {
-                pvals[a].partial_cmp(&pvals[b]).unwrap_or(Ordering::Equal)
-            }
-            Some(ord) => ord,
-            None => Ordering::Equal,
-        }
+
+    gene_indices.sort_unstable_by(|&a, &b| match pvals_adj[a].partial_cmp(&pvals_adj[b]) {
+        Some(Ordering::Equal) => pvals[a].partial_cmp(&pvals[b]).unwrap_or(Ordering::Equal),
+        Some(ord) => ord,
+        None => Ordering::Equal,
     });
-    
+
     gene_indices.truncate(n_genes.min(gene_indices.len()));
-    
+
     let result_len = gene_indices.len();
     let mut ordered_scores = Vec::with_capacity(result_len);
     let mut ordered_pvals = Vec::with_capacity(result_len);
     let mut ordered_pvals_adj = Vec::with_capacity(result_len);
     let mut ordered_logfoldchanges = Vec::with_capacity(result_len);
     let mut ordered_gene_names = Vec::with_capacity(result_len);
-    
+
     for &idx in &gene_indices {
         unsafe {
             ordered_scores.push(*scores.get_unchecked(idx));
@@ -395,9 +445,8 @@ where
 
 fn get_unique_groups(adata: &IMAnnData, groupby: &str) -> anyhow::Result<Vec<String>> {
     let group_col = adata.obs().get_column_from_df(groupby)?;
-    let mut all_groups = Vec::new();
 
-    match group_col.dtype() {
+    let mut all_groups = match group_col.dtype() {
         DataType::String => {
             let string_col = group_col.str()?;
             let mut unique_groups = std::collections::HashSet::new();
@@ -408,7 +457,7 @@ fn get_unique_groups(adata: &IMAnnData, groupby: &str) -> anyhow::Result<Vec<Str
                 }
             }
 
-            all_groups = unique_groups.into_iter().collect();
+            unique_groups.into_iter().collect()
         }
         DataType::Int8
         | DataType::Int16
@@ -427,7 +476,7 @@ fn get_unique_groups(adata: &IMAnnData, groupby: &str) -> anyhow::Result<Vec<Str
                 }
             }
 
-            all_groups = unique_groups.into_iter().collect();
+            unique_groups.into_iter().collect()
         }
         DataType::Categorical(Some(mapping), ordering) => {
             let categories = mapping.get_categories();
@@ -439,15 +488,13 @@ fn get_unique_groups(adata: &IMAnnData, groupby: &str) -> anyhow::Result<Vec<Str
             }
 
             match ordering {
-                CategoricalOrdering::Physical => {
-                    // nothing to do here
-                }
+                CategoricalOrdering::Physical => {}
                 CategoricalOrdering::Lexical => {
                     unique_groups.sort();
                 }
             }
 
-            all_groups = unique_groups;
+            unique_groups
         }
         DataType::Categorical(None, _) => {
             let string_col = group_col.cast(&DataType::String)?;
@@ -460,7 +507,7 @@ fn get_unique_groups(adata: &IMAnnData, groupby: &str) -> anyhow::Result<Vec<Str
                 }
             }
 
-            all_groups = unique_groups.into_iter().collect();
+            unique_groups.into_iter().collect()
         }
         other => {
             return Err(anyhow::anyhow!(
@@ -468,7 +515,7 @@ fn get_unique_groups(adata: &IMAnnData, groupby: &str) -> anyhow::Result<Vec<Str
                 other
             ));
         }
-    }
+    };
 
     if !matches!(group_col.dtype(), DataType::Categorical(Some(_), _)) {
         all_groups.sort();
@@ -484,8 +531,9 @@ fn filter_groups_to_test(
         Some(g) => {
             let mut filtered = Vec::new();
             for &group in g {
-                if all_groups.contains(&group.to_string()) {
-                    filtered.push(group.to_string());
+                let group_string = group.to_string();
+                if all_groups.contains(&group_string) {
+                    filtered.push(group_string);
                 } else {
                     return Err(anyhow::anyhow!("Group '{}' not found in data", group));
                 }
@@ -509,10 +557,13 @@ fn resolve_reference_group(
         Some(ref_group) => {
             if ref_group == "rest" {
                 Ok(None)
-            } else if all_groups.contains(&ref_group.to_string()) {
-                Ok(Some(ref_group.to_string()))
             } else {
-                Err(anyhow::anyhow!("Reference group '{}' not found", ref_group))
+                let ref_group_string = ref_group.to_string();
+                if all_groups.contains(&ref_group_string) {
+                    Ok(Some(ref_group_string))
+                } else {
+                    Err(anyhow::anyhow!("Reference group '{}' not found", ref_group))
+                }
             }
         }
         None => Ok(None),
@@ -591,59 +642,6 @@ fn get_group_indices(adata: &IMAnnData, groupby: &str, group: &str) -> anyhow::R
 
     Ok(indices)
 }
-fn perform_test<T>(
-    matrix: &CsrMatrix<T>,
-    group_indices: &[usize],
-    reference_indices: &[usize],
-    method: TestMethod,
-) -> anyhow::Result<Vec<TestResult<T>>>
-where
-    T: FloatOpsTS,
-    CsrMatrix<T>: MatrixStatTests<T>,
-{
-    let n_cols = matrix.ncols(); 
-    
-    let results: Vec<TestResult<T>> = (0..n_cols)
-        .into_par_iter()
-        .map(|col| {
-            let mut group_values: Vec<T> = Vec::with_capacity(group_indices.len());
-            for &row in group_indices {
-                if let Some(entry) = matrix.get_entry(row, col) {
-                    let value = entry.into_value();
-                    group_values.push(value);
-                } else {
-                    group_values.push(T::zero()); 
-                }
-            }
-            
-            let mut reference_values: Vec<T> = Vec::with_capacity(reference_indices.len());
-            for &row in reference_indices {
-                if let Some(entry) = matrix.get_entry(row, col) {
-                    let value = entry.into_value();
-                    reference_values.push(value);
-                } else {
-                    reference_values.push(T::zero());
-                }
-            }
-            
-            match method {
-                TestMethod::TTest(test_type) => t_test(
-                    &group_values,
-                    &reference_values,
-                    test_type,
-                    Alternative::TwoSided,
-                ),
-                TestMethod::MannWhitney => {
-                    mann_whitney(&group_values, &reference_values, Alternative::TwoSided)
-                }
-                _ => TestResult::new(T::zero(), T::one()),
-            }
-        })
-        .collect();
-
-    Ok(results)
-}
-
 fn apply_correction<T>(p_value: &[T], method: CorrectionMethod) -> anyhow::Result<Vec<T>>
 where
     T: FloatOps,
@@ -658,6 +656,7 @@ where
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn store_results(
     adata: &IMAnnData,
     key: &str,
@@ -671,7 +670,6 @@ fn store_results(
     groupby: &str,
     reference: Option<&str>,
 ) -> anyhow::Result<()> {
-    println!("Storing groups");
     let scores_df = create_dataframe_from_map(&scores)?;
     let pvals_df = create_dataframe_from_map(&pvals)?;
     let pvals_adj_df = create_dataframe_from_map(&pvals_adj)?;
@@ -747,54 +745,37 @@ mod tests {
     use nalgebra_sparse::{CooMatrix, CsrMatrix};
     use polars::prelude::{DataFrame, NamedFrom, Series};
 
-    // Helper function to create a test AnnData object with synthetic data
     fn create_test_anndata() -> anyhow::Result<IMAnnData> {
-        // Create a synthetic gene expression matrix with clear patterns
-        // Matrix dimensions: 10 genes × 12 cells (6 in group A, 6 in group B)
-        //
-        // Patterns:
-        // - Genes 0-2: Highly expressed in group A, low in group B
-        // - Genes 3-5: Highly expressed in group B, low in group A
-        // - Genes 6-9: No significant difference between groups
         let rows: Vec<usize> = vec![
-            // Genes 0-2: High in A, low in B
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2,
-            2, 2, 2, 2, 2, 2, 2, // Genes 3-5: High in B, low in A
-            3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 5, 5, 5, 5, 5,
-            5, 5, 5, 5, 5, 5, 5, // Genes 6-9: No difference
-            6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 8, 8, 8, 8, 8,
-            8, 8, 8, 8, 8, 8, 8, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9,
+            2, 2, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4,
+            4, 4, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 7, 7, 7,
+            7, 7, 7, 7, 7, 7, 7, 7, 7, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 9, 9, 9, 9, 9, 9, 9, 9,
+            9, 9, 9, 9,
         ];
 
         let cols: Vec<usize> = vec![
-            // Genes 0-2: High in A (cols 0-5), low in B (cols 6-11)
             0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 0, 1, 2, 3,
-            4, 5, 6, 7, 8, 9, 10, 11,
-            // Genes 3-5: Low in A (cols 0-5), high in B (cols 6-11)
-            0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 0, 1, 2, 3,
-            4, 5, 6, 7, 8, 9, 10, 11, // Genes 6-9: No difference
-            0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 0, 1, 2, 3,
-            4, 5, 6, 7, 8, 9, 10, 11, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11,
+            4, 5, 6, 7, 8, 9, 10, 11, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 0, 1, 2, 3, 4, 5, 6, 7,
+            8, 9, 10, 11, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
+            11, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 0, 1,
+            2, 3, 4, 5, 6, 7, 8, 9, 10, 11,
         ];
 
         let vals: Vec<f32> = vec![
-            // Genes 0-2: High in A (cols 0-5), low in B (cols 6-11)
             10.0, 10.2, 9.8, 10.5, 10.3, 9.7, 1.0, 1.2, 0.8, 1.1, 0.9, 1.3, 12.0, 11.8, 12.2, 11.5,
             12.5, 11.7, 1.5, 1.7, 1.3, 1.6, 1.4, 1.8, 11.0, 11.3, 10.7, 11.2, 10.8, 11.4, 1.2, 1.1,
-            1.3, 0.9, 1.4, 1.0, // Genes 3-5: Low in A (cols 0-5), high in B (cols 6-11)
-            1.5, 1.3, 1.7, 1.4, 1.8, 1.2, 8.0, 8.2, 7.8, 8.5, 7.7, 8.3, 1.8, 1.6, 2.0, 1.5, 1.9,
-            1.7, 9.0, 8.8, 9.2, 8.7, 9.3, 8.9, 1.2, 1.4, 1.0, 1.3, 0.9, 1.1, 7.5, 7.7, 7.3, 7.8,
-            7.2, 7.9, // Genes 6-9: No difference
-            5.0, 5.2, 4.8, 5.1, 4.9, 5.3, 5.1, 4.9, 5.3, 4.7, 5.2, 5.0, 4.7, 4.5, 4.9, 4.6, 5.0,
-            4.8, 4.8, 5.0, 4.6, 4.9, 4.7, 5.1, 5.2, 5.0, 5.4, 4.8, 5.3, 5.1, 5.0, 5.2, 4.8, 5.3,
-            4.9, 5.1, 3.0, 3.2, 2.8, 3.1, 2.9, 3.3, 3.2, 2.8, 3.4, 2.9, 3.3, 3.1,
+            1.3, 0.9, 1.4, 1.0, 1.5, 1.3, 1.7, 1.4, 1.8, 1.2, 8.0, 8.2, 7.8, 8.5, 7.7, 8.3, 1.8,
+            1.6, 2.0, 1.5, 1.9, 1.7, 9.0, 8.8, 9.2, 8.7, 9.3, 8.9, 1.2, 1.4, 1.0, 1.3, 0.9, 1.1,
+            7.5, 7.7, 7.3, 7.8, 7.2, 7.9, 5.0, 5.2, 4.8, 5.1, 4.9, 5.3, 5.1, 4.9, 5.3, 4.7, 5.2,
+            5.0, 4.7, 4.5, 4.9, 4.6, 5.0, 4.8, 4.8, 5.0, 4.6, 4.9, 4.7, 5.1, 5.2, 5.0, 5.4, 4.8,
+            5.3, 5.1, 5.0, 5.2, 4.8, 5.3, 4.9, 5.1, 3.0, 3.2, 2.8, 3.1, 2.9, 3.3, 3.2, 2.8, 3.4,
+            2.9, 3.3, 3.1,
         ];
 
-        // Create a CooMatrix first, then convert to CsrMatrix
         let coo = CooMatrix::try_from_triplets(10, 12, rows, cols, vals).unwrap();
         let csr = CsrMatrix::from(&coo);
 
-        // Create observation annotations (cell metadata)
         let mut obs_df = DataFrame::default();
         let names: Vec<String> = vec![
             "c1".into(),
@@ -816,7 +797,6 @@ mod tests {
         obs_df.with_column(index_col)?;
         obs_df.with_column(group_labels)?;
 
-        // Create variable annotations (gene metadata)
         let mut var_df = DataFrame::default();
         let g_names: Vec<String> = vec![
             "gene0".into(),
@@ -839,26 +819,23 @@ mod tests {
         Ok(adata)
     }
 
-    // Test 1: Basic functionality test with default parameters
     #[test]
     fn test_basic_rank_genes() -> anyhow::Result<()> {
         let adata = create_test_anndata()?;
 
-        // Run rank_gene_groups with default parameters
         rank_gene_groups(
             &adata,
-            "group",                            // groupby
-            Some("B"),                          // reference
-            Some(&["A"]),                       // test only group A
-            None,                               // key_added (default)
-            None,                               // method (default t-test)
-            None,                               // n_genes (default)
-            CorrectionMethod::BejaminiHochberg, // correction method
-            None,                               // compute_logfoldchanges (default true)
-            None,                               // pseudocount (default 1.0)
+            "group",
+            Some("B"),
+            Some(&["A"]),
+            None,
+            None,
+            None,
+            CorrectionMethod::BejaminiHochberg,
+            None,
+            None,
         )?;
 
-        // Check that results were stored in uns
         let uns = adata.uns();
         let scores = uns.get_data("rank_genes_groups_scores");
         let pvals = uns.get_data("rank_genes_groups_pvals");
@@ -866,7 +843,6 @@ mod tests {
         let logfc = uns.get_data("rank_genes_groups_logfoldchanges");
         let names = uns.get_data("rank_genes_groups_names");
 
-        // Verify that results exist (a minimal check)
         assert!(scores.is_ok());
         assert!(pvals.is_ok());
         assert!(pvals_adj.is_ok());
@@ -876,56 +852,232 @@ mod tests {
         Ok(())
     }
 
-    // Test 2: Validate results match expected patterns
     #[test]
     fn test_validate_results() -> anyhow::Result<()> {
         let adata = create_test_anndata()?;
 
-        // Run with few returned genes to simplify validation
         rank_gene_groups(
             &adata,
             "group",
             Some("B"),
             Some(&["A"]),
-            Some("test_result"), // with a specific key
+            Some("test_result"),
             Some(TestMethod::TTest(TTestType::Welch)),
-            Some(6), // return top 6 genes
+            Some(6),
             CorrectionMethod::BejaminiHochberg,
-            Some(true), // compute log fold changes
-            Some(1.0),  // pseudocount
+            Some(true),
+            Some(1.0),
         )?;
 
-        // Todo add these checks:
-        // 1. The top 6 genes should include genes 0-5
-        // 2. Genes 0-2 should have positive log fold changes (A > B)
-        // 3. Genes 3-5 should have negative log fold changes (A < B)
-        // 4. P-values should be very small for genes 0-5
-        // 5. The genes should be ranked by adjusted p-value
-
-        // Extract the gene_names for checking
         let uns = adata.uns();
         let names_array = uns.get_data("rank_genes_groups_test_result_logfoldchanges");
 
-        // Check the gene names exist
         assert!(names_array.is_ok());
-        let gene_names = names_array?.get_data()?;
-        let gene_names = match gene_names {
+        let gene_names_data = names_array?.get_data()?;
+        match gene_names_data {
             Data::ArrayData(array_data) => match array_data {
                 ArrayData::DataFrame(df) => {
                     assert_eq!(df.height(), 6)
                 }
                 other => {
-                    panic!("This is not the dataformat expected. It should be an dataframe, found {:?}!", other)
+                    panic!("Expected DataFrame for logfoldchanges, found {:?}", other)
                 }
             },
             Data::Scalar(_) => {
-                panic!("This is not the data format expected. This should be an dataframe, but found scalar")
+                panic!("Expected DataFrame for logfoldchanges, found scalar")
             }
             Data::Mapping(_) => {
-                panic!("This is not the data format expected. This should be an dataframe, but found mapping")
+                panic!("Expected DataFrame for logfoldchanges, found mapping")
             }
         };
 
         Ok(())
+    }
+
+    #[test]
+    fn test_mann_whitney_method() -> anyhow::Result<()> {
+        let adata = create_test_anndata()?;
+
+        rank_gene_groups(
+            &adata,
+            "group",
+            Some("rest"),
+            Some(&["A"]),
+            Some("mann_whitney_test"),
+            Some(TestMethod::MannWhitney),
+            Some(5),
+            CorrectionMethod::Bonferroni,
+            Some(true),
+            Some(0.5),
+        )?;
+
+        let uns = adata.uns();
+        let scores = uns.get_data("rank_genes_groups_mann_whitney_test_scores")?;
+        let _pvals = uns.get_data("rank_genes_groups_mann_whitney_test_pvals")?;
+        let method_param = uns.get_data("rank_genes_groups_mann_whitney_test_params_method")?;
+
+        let method_data = method_param.get_data()?;
+        match method_data {
+            Data::Scalar(scalar) => match scalar {
+                DynScalar::String(s) => {
+                    assert!(s.contains("MannWhitney"));
+                }
+                _ => panic!("Expected string scalar for method parameter"),
+            },
+            _ => panic!("Expected scalar data for method parameter"),
+        }
+
+        match scores.get_data()? {
+            Data::ArrayData(ArrayData::DataFrame(df)) => {
+                assert_eq!(df.height(), 5, "Should return exactly 5 genes");
+            }
+            _ => panic!("Expected DataFrame for scores"),
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_multiple_groups() -> anyhow::Result<()> {
+        let adata = create_test_anndata_three_groups()?;
+
+        rank_gene_groups(
+            &adata,
+            "group",
+            None,
+            Some(&["A", "B", "C"]),
+            Some("multi_group"),
+            Some(TestMethod::TTest(TTestType::Student)),
+            Some(3),
+            CorrectionMethod::BejaminiHochberg,
+            Some(true),
+            Some(1.0),
+        )?;
+
+        let uns = adata.uns();
+        let scores = uns.get_data("rank_genes_groups_multi_group_scores")?;
+        let _gene_names = uns.get_data("rank_genes_groups_multi_group_names")?;
+
+        match scores.get_data()? {
+            Data::ArrayData(ArrayData::DataFrame(df)) => {
+                assert_eq!(df.width(), 3, "Should have results for 3 groups");
+                assert_eq!(df.height(), 3, "Should have 3 genes per group");
+
+                let column_names = df.get_column_names();
+                assert!(column_names.iter().any(|name| name.as_str() == "A"));
+                assert!(column_names.iter().any(|name| name.as_str() == "B"));
+                assert!(column_names.iter().any(|name| name.as_str() == "C"));
+            }
+            _ => panic!("Expected DataFrame for scores"),
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_edge_cases() -> anyhow::Result<()> {
+        let adata = create_test_anndata()?;
+
+        let result = rank_gene_groups(
+            &adata,
+            "group",
+            Some("B"),
+            Some(&["INVALID_GROUP"]),
+            Some("error_test"),
+            None,
+            None,
+            CorrectionMethod::BejaminiHochberg,
+            None,
+            None,
+        );
+        assert!(result.is_err(), "Should fail with invalid group name");
+
+        let result = rank_gene_groups(
+            &adata,
+            "group",
+            Some("INVALID_REF"),
+            Some(&["A"]),
+            Some("error_test2"),
+            None,
+            None,
+            CorrectionMethod::BejaminiHochberg,
+            None,
+            None,
+        );
+        assert!(result.is_err(), "Should fail with invalid reference group");
+
+        rank_gene_groups(
+            &adata,
+            "group",
+            Some("B"),
+            Some(&["A"]),
+            Some("zero_genes"),
+            None,
+            Some(0),
+            CorrectionMethod::BejaminiHochberg,
+            None,
+            None,
+        )?;
+
+        let uns = adata.uns();
+        let scores = uns.get_data("rank_genes_groups_zero_genes_scores")?;
+        match scores.get_data()? {
+            Data::ArrayData(ArrayData::DataFrame(df)) => {
+                assert_eq!(df.height(), 0, "Should return 0 genes when n_genes=0");
+            }
+            _ => panic!("Expected DataFrame for scores"),
+        }
+
+        Ok(())
+    }
+
+    fn create_test_anndata_three_groups() -> anyhow::Result<IMAnnData> {
+        let mut rows = Vec::new();
+        let mut cols = Vec::new();
+        let mut vals = Vec::new();
+
+        for cell in 0..15 {
+            for gene in 0..9 {
+                rows.push(cell);
+                cols.push(gene);
+
+                let value = if gene < 3 && cell < 5 {
+                    8.0 + (gene as f32) * 0.5 + (cell as f32) * 0.1
+                } else if (3..6).contains(&gene) && (5..10).contains(&cell) {
+                    7.0 + (gene as f32) * 0.3 + (cell as f32) * 0.1
+                } else if gene >= 6 && cell >= 10 {
+                    6.0 + (gene as f32) * 0.4 + (cell as f32) * 0.1
+                } else {
+                    1.0 + (cell as f32) * 0.05
+                };
+
+                vals.push(value);
+            }
+        }
+
+        let coo = CooMatrix::try_from_triplets(15, 9, rows, cols, vals).unwrap();
+        let csr = CsrMatrix::from(&coo);
+
+        let mut obs_df = DataFrame::default();
+        let cell_names: Vec<String> = (0..15).map(|i| format!("cell_{}", i)).collect();
+        let index_col = Series::new("index".into(), cell_names.clone());
+
+        let group_labels = vec![
+            "A", "A", "A", "A", "A", "B", "B", "B", "B", "B", "C", "C", "C", "C", "C",
+        ];
+        let group_col = Series::new("group".into(), group_labels);
+
+        obs_df.with_column(index_col)?;
+        obs_df.with_column(group_col)?;
+
+        let mut var_df = DataFrame::default();
+        let gene_names: Vec<String> = (0..9).map(|i| format!("gene_{}", i)).collect();
+        let gene_names_col = Series::new("gene_name".into(), gene_names.clone());
+        var_df.with_column(gene_names_col)?;
+
+        let adata =
+            IMAnnData::new_extended(ArrayData::from(csr), cell_names, gene_names, obs_df, var_df)?;
+
+        Ok(adata)
     }
 }

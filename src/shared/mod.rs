@@ -8,10 +8,10 @@ pub use processing::FlavorType;
 pub use processing::HVGParams;
 use std::collections::HashMap;
 
+use anndata::backend::ScalarType;
 use anndata::data::DynCsrMatrix;
 use anndata::data::{DynArray, DynCscMatrix, SelectInfoElem};
 use anndata::{data::Shape, ArrayData, HasShape};
-use anndata::backend::ScalarType;
 use anyhow::{anyhow, bail};
 use nalgebra_sparse::{CscMatrix, CsrMatrix};
 use ndarray::{Array2, ArrayD, Ix2};
@@ -474,14 +474,9 @@ pub fn need_conversion_target_float_type(scalar_type: &ScalarType) -> anyhow::Re
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Default, Debug, Clone, Copy)]
 pub enum Precision {
+    #[default]
     Single,
     Double,
-}
-
-impl Default for Precision {
-    fn default() -> Self {
-        Precision::Single // more than sufficient for single-cell data analysis for now
-    }
 }
