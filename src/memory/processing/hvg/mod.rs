@@ -1,7 +1,4 @@
-use crate::shared::processing::{
-    fit_svr, standardize_log_form_vec, FlavorType,
-    HVGParams,
-};
+use crate::shared::processing::{fit_svr, standardize_log_form_vec, FlavorType, HVGParams};
 use crate::{ComputeSum, ComputeVariance};
 use anndata_memory::{IMAnnData, IMArrayElement};
 use polars::prelude::Column;
@@ -167,7 +164,7 @@ fn normalize_dispersions(
 }
 
 fn subset_genes(
-    log_means: &[f64],  // These are already log-transformed
+    log_means: &[f64], // These are already log-transformed
     dispersion_norm: &[f64],
     n_top_genes: Option<usize>,
     min_mean: f64,
@@ -175,7 +172,7 @@ fn subset_genes(
     min_dispersion: f64,
 ) -> anyhow::Result<Vec<bool>> {
     let mut highly_variable = vec![false; log_means.len()];
-    
+
     if let Some(n_top) = n_top_genes {
         // Python's approach for n_top_genes:
         // 1. First, remove NaN values to compute threshold
@@ -184,31 +181,30 @@ fn subset_genes(
             .filter(|&&d| !d.is_nan())
             .copied()
             .collect();
-        
+
         if non_nan_dispersions.is_empty() {
             return Ok(highly_variable);
         }
-        
+
         // Find the nth highest value
         let n_to_select = n_top.min(non_nan_dispersions.len());
         let mut sorted_dispersions = non_nan_dispersions.clone();
         sorted_dispersions.sort_by(|a, b| b.partial_cmp(a).unwrap_or(std::cmp::Ordering::Equal));
-        
+
         let threshold = sorted_dispersions[n_to_select - 1];
-        
+
         // 2. Now apply threshold to nan_to_num version (NaN → -inf)
         for i in 0..dispersion_norm.len() {
             let disp_value = if dispersion_norm[i].is_nan() {
-                f64::NEG_INFINITY  // Python uses -inf for NaN in final selection
+                f64::NEG_INFINITY // Python uses -inf for NaN in final selection
             } else {
                 dispersion_norm[i]
             };
-            
+
             if disp_value >= threshold {
                 highly_variable[i] = true;
             }
         }
-        
     } else {
         // Original cutoff-based selection
         // Python applies nan_to_num (NaN → 0) before checking bounds
@@ -216,18 +212,18 @@ fn subset_genes(
             .iter()
             .map(|&d| if d.is_nan() { 0.0 } else { d })
             .collect();
-        
+
         // Apply mean filters
         let valid_by_mean: Vec<bool> = log_means
             .iter()
             .map(|&log_mean| log_mean > min_mean && log_mean < max_mean)
             .collect();
-        
+
         for i in 0..log_means.len() {
             highly_variable[i] = valid_by_mean[i] && clean_dispersions[i] > min_dispersion;
         }
     }
-    
+
     Ok(highly_variable)
 }
 

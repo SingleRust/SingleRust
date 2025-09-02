@@ -10,7 +10,6 @@ use rand::prelude::Distribution;
 use rand::rng;
 use single_algebra::dimred::pca::{MaskedSparsePCABuilder, SVDMethod};
 use single_utilities::traits::FloatOpsTS;
-use std::fmt::Debug;
 use std::ops::Deref;
 
 pub struct PCAResult<T>
@@ -22,6 +21,8 @@ where
     pub cumulative_explained_variance_ratio: Array1<T>,
     pub feature_importance: Array2<T>,
 }
+
+#[allow(clippy::too_many_arguments)]
 pub fn run_pca_sparse_masked<T>(
     matrix: &IMArrayElement,
     feature_selection_method: Option<FeatureSelectionMethod>,
@@ -43,7 +44,7 @@ where
     let verbose = verbose.unwrap_or(false);
     let n_components = n_components.unwrap_or(50);
     let random_seed = random_seed.unwrap_or(42);
-    let svd_method = svd_method.unwrap_or(SVDMethod::default());
+    let svd_method = svd_method.unwrap_or_default();
     let selected = match feature_selection_method {
         FeatureSelectionMethod::FullFeatures => {
             vec![true; ncols]

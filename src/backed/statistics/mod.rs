@@ -49,8 +49,8 @@ impl<B: Backend> ComputeNonZero for ArrayElem<B> {
 
     fn nonzero_whole_masked<T>(
         &self,
-        direction: &Direction,
-        mask: &[bool],
+        _direction: &Direction,
+        _mask: &[bool],
     ) -> anyhow::Result<Vec<T>>
     where
         T: PrimInt + Unsigned + Zero + AddAssign,
@@ -96,7 +96,7 @@ impl<B: Backend> ComputeSum for ArrayElem<B> {
         Ok(())
     }
 
-    fn sum_whole_masked<T>(&self, direction: &Direction, mask: &[bool]) -> anyhow::Result<Vec<T>>
+    fn sum_whole_masked<T>(&self, _direction: &Direction, _mask: &[bool]) -> anyhow::Result<Vec<T>>
     where
         T: num_traits::Float + num_traits::NumCast + AddAssign + std::iter::Sum + Send + Sync,
     {

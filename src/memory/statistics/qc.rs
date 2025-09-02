@@ -3,7 +3,7 @@ use num_traits::Float;
 use polars::{frame::DataFrame, prelude::Column};
 use single_utilities::types::Direction;
 
-use crate::{shared::statistics::ComputeTopSegmentProportions, ComputeNonZero, ComputeSum};
+use crate::{ComputeNonZero, ComputeSum};
 
 fn describe_obs(
     adata: &IMAnnData,
@@ -106,7 +106,7 @@ fn describe_var(
     adata: &IMAnnData,
     x: &anndata_memory::IMArrayElement,
     expr_type: &str,
-    var_type: &str,
+    _var_type: &str,
     log1p: bool,
 ) -> anyhow::Result<DataFrame> {
     let n_obs = adata.n_obs();
@@ -152,6 +152,7 @@ fn describe_var(
     DataFrame::new(columns).map_err(Into::into)
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn calculate_qc_metrics(
     adata: &IMAnnData,
     expr_type: Option<&str>,

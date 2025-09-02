@@ -474,14 +474,9 @@ pub fn need_conversion_target_float_type(scalar_type: &ScalarType) -> anyhow::Re
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Default, Debug, Clone, Copy)]
 pub enum Precision {
+    #[default]
     Single,
     Double,
-}
-
-impl Default for Precision {
-    fn default() -> Self {
-        Precision::Single // more than sufficient for single-cell data analysis for now
-    }
 }

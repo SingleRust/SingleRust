@@ -81,6 +81,7 @@ pub enum CorrectionMethod {
 ///     None,
 /// )?;
 /// ```
+#[allow(clippy::too_many_arguments)]
 pub fn rank_gene_groups(
     adata: &IMAnnData,
     groupby: &str,
@@ -173,6 +174,7 @@ struct DifferentialExpressionResults {
     gene_names: HashMap<String, Vec<String>>,
 }
 
+#[allow(clippy::too_many_arguments)]
 fn run_differential_expression<T>(
     adata: &IMAnnData,
     csr_matrix: &CsrMatrix<T>,
@@ -247,6 +249,7 @@ struct GroupTestResults {
     gene_names: Vec<String>,
 }
 
+#[allow(clippy::too_many_arguments)]
 fn run_tests_for_group<T>(
     csr_matrix: &CsrMatrix<T>,
     group_indices: &[usize],
@@ -279,7 +282,7 @@ where
 
     let mut is_group = vec![false; n_rows];
     let mut is_ref = vec![false; n_rows];
-    
+
     for &idx in group_indices {
         is_group[idx] = true;
     }
@@ -343,7 +346,8 @@ where
                             let mut ref_values_f64 = Vec::with_capacity(reference_indices.len());
 
                             for &row_idx in group_indices {
-                                let value = if let Some(entry) = csr_matrix.get_entry(row_idx, col) {
+                                let value = if let Some(entry) = csr_matrix.get_entry(row_idx, col)
+                                {
                                     entry.into_value().to_f64().unwrap_or(0.0)
                                 } else {
                                     0.0
@@ -352,7 +356,8 @@ where
                             }
 
                             for &row_idx in reference_indices {
-                                let value = if let Some(entry) = csr_matrix.get_entry(row_idx, col) {
+                                let value = if let Some(entry) = csr_matrix.get_entry(row_idx, col)
+                                {
                                     entry.into_value().to_f64().unwrap_or(0.0)
                                 } else {
                                     0.0
@@ -651,6 +656,7 @@ where
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn store_results(
     adata: &IMAnnData,
     key: &str,

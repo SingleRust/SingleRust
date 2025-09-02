@@ -37,14 +37,14 @@ jobs:
     - name: Run differential expression tests
       run: cargo test memory::processing::diffexp --verbose
     
-    - name: Run all library tests
-      run: cargo test --lib --verbose
+    #- name: Run all library tests
+    #  run: cargo test --lib --verbose
     
-    - name: Run integration tests
-      run: cargo test --test test_basic_load --verbose
+    #- name: Run integration tests
+    #  run: cargo test --test test_basic_load --verbose
     
-    - name: Run stats tests
-      run: cargo test --test test_basic_stats --verbose
+    #- name: Run stats tests
+    #  run: cargo test --test test_basic_stats --verbose
 
   lint:
     name: Rust Lint

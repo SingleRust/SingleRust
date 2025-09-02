@@ -302,7 +302,6 @@ impl ComputeTopSegmentProportions for IMArrayElement {
 
         let totals: Vec<f64> = self.sum_whole(direction)?;
 
-        const BATCH_SIZE: usize = 1000;
         let mut proportions = ndarray::Array2::<f64>::zeros((n_items, ns.len()));
 
         let mut unique_ns: Vec<usize> = ns.to_vec();
