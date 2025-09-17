@@ -267,7 +267,7 @@ pub fn rank_gene_groups(
 }
 
 /// Container for organizing differential expression results across multiple groups.
-/// 
+///
 /// This struct holds the complete results of differential expression analysis,
 /// with separate collections for each group tested.
 struct DifferentialExpressionResults {
@@ -483,7 +483,11 @@ where
                                 ref_values_f64.push(value);
                             }
 
-                            mann_whitney_optimized(&group_values_f64, &ref_values_f64, Alternative::TwoSided)
+                            mann_whitney_optimized(
+                                &group_values_f64,
+                                &ref_values_f64,
+                                Alternative::TwoSided,
+                            )
                         }
                         _ => TestResult::new(0.0, 1.0),
                     }

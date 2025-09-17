@@ -32,7 +32,7 @@
 //!
 //! ```rust,ignore
 //! use single_rust::memory::utils::{
-//!     convert_to_float_if_non_float_type, 
+//!     convert_to_float_if_non_float_type,
 //!     create_dataframe_from_map,
 //!     arr1_conversion
 //! };
@@ -566,7 +566,7 @@ where
 /// let mut results = HashMap::new();
 /// results.insert("group_A_scores".to_string(), vec![1.5, 2.3, 0.8]);
 /// results.insert("group_B_scores".to_string(), vec![0.2, 1.9, 2.1]);
-/// 
+///
 /// let df = create_dataframe_from_map(&results)?;
 /// // Results in DataFrame with columns "group_A_scores" and "group_B_scores"
 /// ```
@@ -604,11 +604,11 @@ where
 /// ## Usage Examples
 /// ```rust,ignore
 /// let mut gene_results = HashMap::new();
-/// gene_results.insert("group_A_genes".to_string(), 
+/// gene_results.insert("group_A_genes".to_string(),
 ///                    vec!["ACTB".to_string(), "GAPDH".to_string()]);
-/// gene_results.insert("group_B_genes".to_string(), 
+/// gene_results.insert("group_B_genes".to_string(),
 ///                    vec!["TP53".to_string(), "MYC".to_string()]);
-/// 
+///
 /// let df = create_string_dataframe_from_map(&gene_results)?;
 /// ```
 ///
