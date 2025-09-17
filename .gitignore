@@ -8,3 +8,4 @@ resources
 _build/
 _build/*
 .fleet
+.zed

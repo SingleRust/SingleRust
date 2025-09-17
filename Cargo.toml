@@ -1,6 +1,6 @@
 [package]
 name = "single_rust"
-version = "0.5.5"
+version = "0.5.6"
 edition = "2021"
 license-file = "LICENSE.md"
 readme = "README.md"
@@ -29,10 +29,10 @@ anndata-memory = { version = "1.0.6" }
 num-traits = "0.2.19"
 rand = "0.9.2"
 nalgebra = { version = "0.33.2", features = ["serde-serialize", "rayon"] }
-single_algebra = { version = "0.8.6", features = [] }
+single_algebra = { version = "0.8.7", features = [] }
 simba = { version = "0.9.0", optional = true }
-single-utilities = "0.8.0"
-single-statistics = { version = "0.7.0" }
+single-utilities = "0.8.5"
+single-statistics = { version = "0.8.1" }
 
 
 [dev-dependencies]
