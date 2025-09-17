@@ -1,3 +1,78 @@
+//! # Differential Expression Analysis
+//!
+//! This module provides high-performance differential expression analysis for single-cell RNA-seq data.
+//! It implements statistical tests to identify genes that are significantly differentially expressed
+//! between groups of cells, similar to scanpy's `rank_genes_groups` functionality.
+//!
+//! ## Features
+//!
+//! - **Multiple Statistical Tests**: Support for parametric (t-test variants) and non-parametric (Mann-Whitney) tests
+//! - **Parallel Processing**: Efficient parallel computation using Rust's rayon for large datasets
+//! - **Multiple Testing Correction**: Various correction methods (Bonferroni, Benjamini-Hochberg, etc.)
+//! - **Flexible Group Comparisons**: Compare specific groups vs reference groups or vs all other cells
+//! - **Effect Size Calculation**: Computation of log fold changes with customizable pseudocounts
+//!
+//! ## Statistical Methods
+//!
+//! ### Parametric Tests
+//! - **Student's t-test**: Assumes equal variances between groups
+//! - **Welch's t-test**: Does not assume equal variances (default, recommended)
+//!
+//! ### Non-parametric Tests  
+//! - **Mann-Whitney U test**: Rank-based test, no distributional assumptions
+//!
+//! ## Usage Examples
+//!
+//! ```rust,ignore
+//! use single_rust::memory::processing::diffexp::{rank_gene_groups, CorrectionMethod};
+//! use single_statistics::testing::{TestMethod, TTestType};
+//!
+//! // Basic differential expression: Compare group A vs group B
+//! rank_gene_groups(
+//!     &adata,
+//!     "cell_type",           // Column in adata.obs with group labels
+//!     Some("B"),             // Reference group
+//!     Some(&["A"]),          // Groups to test
+//!     None,                  // Use default key "rank_genes_groups"
+//!     None,                  // Use default Welch's t-test
+//!     None,                  // Return all genes
+//!     CorrectionMethod::BejaminiHochberg,
+//!     None,                  // Compute log fold changes
+//!     None,                  // Use default pseudocount
+//! )?;
+//!
+//! // Compare each group vs all other cells
+//! rank_gene_groups(
+//!     &adata,
+//!     "cell_type",
+//!     Some("rest"),          // Use all other cells as reference
+//!     None,                  // Test all groups
+//!     Some("vs_rest"),       // Custom key for results
+//!     Some(TestMethod::MannWhitney), // Use non-parametric test
+//!     Some(50),              // Return top 50 genes per group
+//!     CorrectionMethod::Bonferroni,
+//!     Some(true),
+//!     Some(0.5),             // Custom pseudocount
+//! )?;
+//! ```
+//!
+//! ## Output Format
+//!
+//! Results are stored in `adata.uns` with structured keys:
+//! - `{key}_scores`: Test statistics for each gene and group
+//! - `{key}_pvals`: Raw p-values
+//! - `{key}_pvals_adj`: Multiple testing corrected p-values  
+//! - `{key}_logfoldchanges`: Log2 fold changes
+//! - `{key}_names`: Gene names ranked by significance
+//! - `{key}_params_*`: Analysis parameters for reproducibility
+//!
+//! ## Performance Notes
+//!
+//! - Uses parallel processing with optimized chunk sizes for large datasets
+//! - Pre-computes summary statistics for t-tests to avoid redundant calculations
+//! - Optimized sparse matrix operations for memory efficiency
+//! - Results are sorted by adjusted p-values, then raw p-values for ranking
+
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::ops::Deref;
@@ -12,7 +87,7 @@ use single_statistics::testing::correction::{
     benjamini_hochberg_correction, benjamini_yekutieli_correction, bonferroni_correction,
     hochberg_correction, holm_bonferroni_correction, storey_qvalues,
 };
-use single_statistics::testing::inference::nonparametric::mann_whitney;
+use single_statistics::testing::inference::nonparametric::mann_whitney_optimized;
 use single_statistics::testing::inference::parametric::fast_t_test_from_sums;
 use single_statistics::testing::inference::MatrixStatTests;
 use single_statistics::testing::{Alternative, TTestType, TestMethod, TestResult};
@@ -23,13 +98,38 @@ use crate::memory::utils::{create_dataframe_from_map, create_string_dataframe_fr
 /// Chunk size for parallel processing of statistical tests
 const PARALLEL_CHUNK_SIZE: usize = 64;
 
+/// Multiple testing correction methods for controlling family-wise error rate or false discovery rate.
+///
+/// When testing thousands of genes simultaneously, the probability of false positives increases
+/// dramatically. These correction methods adjust p-values to control for multiple testing.
+///
+/// ## Methods
+///
+/// - **Bonferroni**: Conservative method controlling family-wise error rate (FWER)
+/// - **BejaminiHochberg**: Controls false discovery rate (FDR), less conservative than Bonferroni
+/// - **BenjaminiYekutieli**: More conservative FDR control for dependent tests
+/// - **HolmBonferroni**: Step-down method, more powerful than Bonferroni
+/// - **Hochberg**: Step-up method, requires independence assumption
+/// - **StoreyQValue**: Estimates q-values using Storey's method
+///
+/// ## Recommendations
+///
+/// - Use **BejaminiHochberg** for most single-cell differential expression analyses
+/// - Use **Bonferroni** when very strict control of false positives is needed
+/// - Use **StoreyQValue** when you need q-value estimates rather than adjusted p-values
 #[derive(Clone)]
 pub enum CorrectionMethod {
+    /// Bonferroni correction: p_adj = p * n_tests
     Bonferroni,
+    /// Benjamini-Hochberg FDR correction (recommended for most analyses)
     BejaminiHochberg,
+    /// Benjamini-Yekutieli FDR correction for dependent tests
     BenjaminiYekutieli,
+    /// Holm-Bonferroni step-down method
     HolmBonferroni,
+    /// Hochberg step-up method
     Hochberg,
+    /// Storey q-value estimation
     StoreyQValue,
 }
 
@@ -166,11 +266,20 @@ pub fn rank_gene_groups(
     Ok(())
 }
 
+/// Container for organizing differential expression results across multiple groups.
+/// 
+/// This struct holds the complete results of differential expression analysis,
+/// with separate collections for each group tested.
 struct DifferentialExpressionResults {
+    /// Test statistics (t-statistic, U-statistic, etc.) for each group
     scores: HashMap<String, Vec<f64>>,
+    /// Raw p-values before multiple testing correction
     pvals: HashMap<String, Vec<f64>>,
+    /// Adjusted p-values after multiple testing correction
     pvals_adj: HashMap<String, Vec<f64>>,
+    /// Log2 fold changes (group_mean / reference_mean)
     logfoldchanges: HashMap<String, Vec<f64>>,
+    /// Gene names ranked by significance for each group
     gene_names: HashMap<String, Vec<String>>,
 }
 
@@ -241,11 +350,20 @@ where
     })
 }
 
+/// Container for differential expression results for a single group comparison.
+///
+/// Holds the complete statistical results for comparing one group against a reference,
+/// including test statistics, p-values, effect sizes, and gene rankings.
 struct GroupTestResults {
+    /// Test statistics ranked by significance
     scores: Vec<f64>,
+    /// Raw p-values ranked by significance  
     pvals: Vec<f64>,
+    /// Multiple testing corrected p-values ranked by significance
     pvals_adj: Vec<f64>,
+    /// Log2 fold changes ranked by significance
     logfoldchanges: Vec<f64>,
+    /// Gene names ranked by significance
     gene_names: Vec<String>,
 }
 
@@ -365,7 +483,7 @@ where
                                 ref_values_f64.push(value);
                             }
 
-                            mann_whitney(&group_values_f64, &ref_values_f64, Alternative::TwoSided)
+                            mann_whitney_optimized(&group_values_f64, &ref_values_f64, Alternative::TwoSided)
                         }
                         _ => TestResult::new(0.0, 1.0),
                     }
@@ -443,6 +561,19 @@ where
     })
 }
 
+/// Extract unique group labels from a categorical or string column in the observation metadata.
+///
+/// This function handles different data types commonly used for group labels:
+/// - String columns
+/// - Integer columns (converted to strings)  
+/// - Categorical columns (with proper ordering preservation)
+///
+/// # Arguments
+/// * `adata` - The AnnData object
+/// * `groupby` - Column name in `adata.obs` containing group labels
+///
+/// # Returns
+/// Sorted vector of unique group names as strings
 fn get_unique_groups(adata: &IMAnnData, groupby: &str) -> anyhow::Result<Vec<String>> {
     let group_col = adata.obs().get_column_from_df(groupby)?;
 
@@ -523,6 +654,17 @@ fn get_unique_groups(adata: &IMAnnData, groupby: &str) -> anyhow::Result<Vec<Str
     Ok(all_groups)
 }
 
+/// Filter and validate the list of groups to test from user input.
+///
+/// If specific groups are provided, validates they exist in the data.
+/// If no groups specified, returns all available groups.
+///
+/// # Arguments
+/// * `all_groups` - Complete list of groups available in the data
+/// * `groups` - Optional user-specified subset of groups to test
+///
+/// # Returns
+/// Validated vector of group names to test
 fn filter_groups_to_test(
     all_groups: &[String],
     groups: Option<&[&str]>,
@@ -549,6 +691,20 @@ fn filter_groups_to_test(
     }
 }
 
+/// Resolve the reference group specification to an actual group name or "rest" mode.
+///
+/// Handles three cases:
+/// - Specific group name: validates the group exists
+/// - "rest": use all cells not in the test group as reference
+/// - None: automatically use "rest" mode
+///
+/// # Arguments
+/// * `all_groups` - Complete list of available groups
+/// * `reference` - User-specified reference group or None
+///
+/// # Returns
+/// - `Some(group_name)` for specific reference group
+/// - `None` for "rest" mode (use all other cells)
 fn resolve_reference_group(
     all_groups: &[String],
     reference: Option<&str>,
@@ -570,6 +726,25 @@ fn resolve_reference_group(
     }
 }
 
+/// Get row indices for cells belonging to a specific group.
+///
+/// Searches through the groupby column and returns the indices of all cells
+/// that match the specified group label. Handles different column data types
+/// including strings, integers, and categorical data.
+///
+/// # Arguments
+/// * `adata` - The AnnData object
+/// * `groupby` - Column name in `adata.obs` containing group labels
+/// * `group` - Group label to search for
+///
+/// # Returns
+/// Vector of 0-based row indices for cells in the specified group
+///
+/// # Errors
+/// Returns error if:
+/// - The groupby column doesn't exist
+/// - No cells found for the specified group
+/// - Data type conversion fails
 fn get_group_indices(adata: &IMAnnData, groupby: &str, group: &str) -> anyhow::Result<Vec<usize>> {
     let group_col = adata.obs().get_column_from_df(groupby)?;
 
@@ -642,6 +817,27 @@ fn get_group_indices(adata: &IMAnnData, groupby: &str, group: &str) -> anyhow::R
 
     Ok(indices)
 }
+
+/// Apply multiple testing correction to a vector of p-values.
+///
+/// Converts p-values to the appropriate numeric type and applies the specified
+/// correction method. All correction methods are implemented in the `single_statistics`
+/// crate with well-tested algorithms.
+///
+/// # Arguments
+/// * `p_value` - Raw p-values to correct
+/// * `method` - Multiple testing correction method to apply
+///
+/// # Returns
+/// Vector of corrected p-values in the same order as input
+///
+/// # Multiple Testing Methods
+/// - **Bonferroni**: Most conservative, controls FWER
+/// - **Benjamini-Hochberg**: Controls FDR, widely used
+/// - **Benjamini-Yekutieli**: More conservative FDR for dependent tests
+/// - **Holm-Bonferroni**: Stepwise method, less conservative than Bonferroni
+/// - **Hochberg**: Requires independence assumption
+/// - **Storey Q-value**: Provides q-value estimates
 fn apply_correction<T>(p_value: &[T], method: CorrectionMethod) -> anyhow::Result<Vec<T>>
 where
     T: FloatOps,
