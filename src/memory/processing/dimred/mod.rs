@@ -83,11 +83,11 @@ pub mod pca;
 pub enum FeatureSelectionMethod {
     /// Use all available genes/features. May include noise and increase computational cost.
     FullFeatures,
-    
+
     /// Use genes marked as highly variable. Vector of booleans where true indicates
     /// the gene should be included. Length must match the number of genes in the dataset.
     HighlyVariableSelection(Vec<bool>),
-    
+
     /// Randomly select the specified number of genes. Useful for benchmarking
     /// and testing different feature set sizes.
     RandomSelection(usize),

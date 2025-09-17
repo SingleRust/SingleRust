@@ -6,13 +6,14 @@ Welcome to Single Rust 🚀, a pioneering library for the Rust programming langu
 
 ## Current Status 🚧
 
-SingleRust is currently in active development, with core functionality already implemented:
+SingleRust is in active development with substantial core functionality implemented:
 
-- **Matrix Handling**: Efficient processing of sparse matrices common in single-cell data
-- **Quality Control**: Tools for filtering cells and genes based on expression metrics
-- **Normalization**: Implementation of standard normalization procedures
-- **Highly Variable Gene Detection**: Algorithms for identifying genes with high variability
-- **Core Statistics**: Fast computation of essential statistics for single-cell analysis
+- **Quality Control**: Comprehensive QC metrics with mitochondrial gene detection
+- **Normalization**: Log1p and total count normalization with type-safe conversions
+- **Feature Selection**: Highly variable gene detection (Seurat, SVR methods)
+- **Differential Expression**: Statistical testing (t-tests, Mann-Whitney) with multiple testing correction
+- **Dimensionality Reduction**: PCA with sparse matrix support (t-SNE, UMAP in development)
+- **Matrix Handling**: Efficient sparse matrix processing and type conversions
 
 ## Features 🌟
 
@@ -31,10 +32,10 @@ SingleRust is currently in active development, with core functionality already i
 
 ### Analysis Pipeline
 
-- **Quality Control**: Tools for filtering cells and genes based on expression metrics
-- **Normalization**: Standard normalization procedures for single-cell data
-- **Feature Selection**: Identification of highly variable genes for dimensionality reduction
-- **Differential Expression**: (Coming soon) Tools for identifying differentially expressed genes between cell populations
+- **Quality Control**: QC metrics, mitochondrial analysis, dropout rates
+- **Feature Selection**: Multiple HVG detection methods (Seurat, SVR)
+- **Differential Expression**: t-tests, Mann-Whitney U, multiple testing corrections
+- **Dimensionality Reduction**: PCA with feature selection integration
 
 ## Getting Started 🚀
 
@@ -44,7 +45,7 @@ Add SingleRust to your Cargo.toml:
 
 ```toml
 [dependencies]
-single_rust = "0.2.2-alpha.0"
+single_rust = "0.5.6"
 ```
 
 ### Basic Usage
@@ -52,37 +53,64 @@ single_rust = "0.2.2-alpha.0"
 ```rust
 use single_rust::io;
 use single_rust::memory::processing::{normalize_expression, log1p_expression};
-use single_rust::shared::Direction;
+use single_rust::memory::processing::hvg::compute_highly_variable_genes;
+use single_rust::memory::processing::diffexp::{rank_gene_groups, CorrectionMethod};
+use single_rust::memory::statistics::qc::qc_metrics;
+use single_utilities::types::Direction;
 
-// Load an AnnData file into memory
+// Load data and run complete analysis pipeline
 let adata = io::read_h5ad_memory("path/to/data.h5ad")?;
 
-// Perform log1p normalization
-log1p_expression(&adata.x(), None)?;
+qc_metrics(&adata)?;  // Quality control
+log1p_expression(&adata.x(), None)?;  // Log1p normalization
+normalize_expression(&adata.x(), 10_000, &Direction::ROW, None)?;  // Normalize to 10k
+compute_highly_variable_genes(&adata, None)?;  // Find HVGs
 
-// Normalize expression (e.g., to 10,000 counts per cell)
-normalize_expression(&adata.x(), 10_000, &Direction::ROW, None)?;
-
-// Compute highly variable genes
-use single_rust::memory::processing::compute_highly_variable_genes;
-compute_highly_variable_genes(&adata, None)?;
+// Differential expression analysis
+rank_gene_groups(&adata, "cell_type", Some("rest"), None, None, None, 
+                Some(100), CorrectionMethod::BejaminiHochberg, None, None)?;
 ```
 
 ## Differential Expression Analysis 🧪
 
-Differential expression analysis in SingleRust is designed to efficiently identify genes that show significant differences between cell populations. The implementation focuses on:
+Robust statistical testing for identifying differentially expressed genes between cell populations:
 
-- **Statistical Robustness**: Implementation of well-established statistical tests
-- **Performance**: Optimized for large single-cell datasets
-- **Flexibility**: Support for various experimental designs and comparison strategies
+- **Statistical tests**: t-tests (Student's, Welch's), Mann-Whitney U test
+- **Multiple testing correction**: Bonferroni, Benjamini-Hochberg, Benjamini-Yekutieli
+- **Effect sizes**: Log fold changes with configurable pseudocounts
+- **Flexible comparisons**: Group vs group, group vs rest, or custom comparisons
 
-Already implemented features include:
-- Rank-based tests (Wilcoxon)
-- Parametric tests (t-test)
-- Multiple testing correction
-- Effect size calculation
+```rust
+// Compare cell types using Mann-Whitney test
+use single_statistics::testing::TestMethod;
 
-This module is designed with computational efficiency in mind, focusing on the statistics rather than visualization, allowing it to handle large datasets with low memory footprint.
+rank_gene_groups(&adata, "cell_type", Some("T_cells"), Some(&["B_cells"]), 
+                Some("comparison"), Some(TestMethod::MannWhitney), Some(50),
+                CorrectionMethod::BejaminiHochberg, Some(true), Some(1.0))?;
+```
+
+## Quality Control & Analysis Features 🔍
+
+- **Quality Control**: Automatic mitochondrial gene detection, cell/gene metrics, dropout analysis
+- **Highly Variable Genes**: Seurat and SVR methods with flexible selection criteria  
+- **Dimensionality Reduction**: PCA with sparse matrix support, t-SNE/UMAP in development
+
+```rust
+// Complete QC and feature selection workflow
+use single_rust::shared::HVGParams;
+
+qc_metrics(&adata)?;
+compute_highly_variable_genes(&adata, Some(HVGParams { 
+    n_top_genes: Some(2000), ..Default::default() 
+}))?;
+
+// PCA with HVG feature selection
+use single_rust::memory::processing::dimred::{FeatureSelectionMethod, pca::run_pca_sparse_masked};
+
+let pca_result = run_pca_sparse_masked::<f64>(&adata.x(), 
+    Some(FeatureSelectionMethod::HighlyVariableSelection(hvg_mask)), 
+    Some(true), None, Some(50), None, Some(42), None)?;
+```
 
 ## Visualization Strategy 📊
 
@@ -97,25 +125,17 @@ This approach combines Rust's performance benefits for computation with the rich
 
 ## Roadmap 🗺️
 
-- **Dimensionality Reduction**: PCA, t-SNE, and UMAP implementations
-- **Clustering**: Graph-based and k-means clustering algorithms
-- **Advanced Trajectory Analysis**: Tools for pseudotime and lineage inference
-- **Integration Methods**: Batch correction and dataset integration
-- **Spatial Applications**: Analysis of spatial transcriptomics data
-- **Export Functions**: Tools for exporting analysis results to formats compatible with visualization libraries in Python and R
-- **Full ndarray and rec-array Compatibility**: Complete interoperability with numpy array formats
+- **Near-term**: t-SNE/UMAP, clustering algorithms (Leiden, k-means), enhanced Python/R export
+- **Medium-term**: Trajectory analysis, batch correction, spatial transcriptomics support  
+- **Long-term**: Complete pipeline integration, web interface, cloud scaling
+
+## Documentation 📚
+
+Comprehensive documentation with API docs (`cargo doc --open`) and scientific context for all modules.
 
 ## Contributing 🤝
 
-We welcome contributions from the community! Whether it's adding new features, improving documentation, or reporting bugs, your help is appreciated.
-
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add some amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
-
-Please check the issue tracker for areas where help is needed.
+Contributions welcome! Areas needing help: algorithm implementations, performance optimization, testing, and documentation. See issues for specific needs.
 
 ## License 📜
 
@@ -123,7 +143,7 @@ SingleRust is distributed under the BSD 3-Clause License, ensuring it remains fr
 
 ## Contact 📧
 
-For inquiries, suggestions, or expressions of interest in contributing, please open an issue on our GitHub repository or reach out directly via [email](single-rust@crimelabs.eu).
+For inquiries, suggestions, or expressions of interest in contributing, please open an issue on our GitHub repository or reach out directly via [email](info@single-rust.com).
 
 ## Acknowledgements 🙏
 
