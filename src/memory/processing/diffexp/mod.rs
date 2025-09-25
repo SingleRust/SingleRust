@@ -239,6 +239,7 @@ pub fn rank_gene_groups(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn rank_gene_groups_dataframe(
     adata: &IMAnnData,
     groupby: &str,
@@ -289,7 +290,7 @@ pub fn rank_gene_groups_dataframe(
     let mut pval_adj_column: Vec<f64> = Vec::new();
     let mut logfc_column: Vec<f64> = Vec::new();
 
-    let reference_label = reference.as_ref().map(|s| s.as_str()).unwrap_or("rest");
+    let reference_label = reference.as_deref().unwrap_or("rest");
 
     for group in &groups_to_test {
         let group_scores = scores
@@ -346,6 +347,7 @@ pub fn rank_gene_groups_dataframe(
     Ok(df)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn compute_rank_gene_groups(
     adata: &IMAnnData,
     groupby: &str,
