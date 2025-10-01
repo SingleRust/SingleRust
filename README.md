@@ -135,7 +135,7 @@ Comprehensive documentation with API docs (`cargo doc --open`) and scientific co
 
 ## Contributing 🤝
 
-Contributions welcome! Areas needing help: algorithm implementations, performance optimization, testing, and documentation. See issues for specific needs.
+Contributions welcome! Areas needing development: algorithm implementations, performance optimization, testing, and documentation. See issues for specific needs.
 
 ## License 📜
 

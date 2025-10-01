@@ -18,7 +18,7 @@
 //! - **Student's t-test**: Assumes equal variances between groups
 //! - **Welch's t-test**: Does not assume equal variances (default, recommended)
 //!
-//! ### Non-parametric Tests  
+//! ### Non-parametric Tests
 //! - **Mann-Whitney U test**: Rank-based test, no distributional assumptions
 //!
 //! ## Usage Examples
@@ -61,7 +61,7 @@
 //! Results are stored in `adata.uns` with structured keys:
 //! - `{key}_scores`: Test statistics for each gene and group
 //! - `{key}_pvals`: Raw p-values
-//! - `{key}_pvals_adj`: Multiple testing corrected p-values  
+//! - `{key}_pvals_adj`: Multiple testing corrected p-values
 //! - `{key}_logfoldchanges`: Log2 fold changes
 //! - `{key}_names`: Gene names ranked by significance
 //! - `{key}_params_*`: Analysis parameters for reproducibility
@@ -80,9 +80,13 @@ use std::ops::Deref;
 use anndata::data::{DynCsrMatrix, DynScalar};
 use anndata::{ArrayData, Data};
 use anndata_memory::{IMAnnData, IMElement};
+use anyhow::Ok;
 use nalgebra_sparse::CsrMatrix;
 use ndarray::parallel::prelude::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator};
 use polars::datatypes::{CategoricalOrdering, DataType};
+use polars::frame::DataFrame;
+use polars::prelude::NamedFrom;
+use polars::series::Series;
 use single_statistics::testing::correction::{
     benjamini_hochberg_correction, benjamini_yekutieli_correction, bonferroni_correction,
     hochberg_correction, holm_bonferroni_correction, storey_qvalues,
@@ -200,16 +204,174 @@ pub fn rank_gene_groups(
     let pseudocount = pseudocount.unwrap_or(1.0);
     let n_genes = n_genes.unwrap_or(adata.n_vars());
 
+    let computation = compute_rank_gene_groups(
+        adata,
+        groupby,
+        reference,
+        groups,
+        method,
+        n_genes,
+        correction_method,
+        compute_lfc,
+        pseudocount,
+    )?;
+
+    let RankGeneGroupsComputed {
+        groups: groups_to_test,
+        results,
+        reference,
+    } = computation;
+
+    store_results(
+        adata,
+        &key,
+        &groups_to_test,
+        results.scores,
+        results.pvals,
+        results.pvals_adj,
+        results.logfoldchanges,
+        results.gene_names,
+        method,
+        groupby,
+        reference,
+    )?;
+
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn rank_gene_groups_dataframe(
+    adata: &IMAnnData,
+    groupby: &str,
+    reference: Option<&str>,
+    groups: Option<&[&str]>,
+    method: Option<TestMethod>,
+    n_genes: Option<usize>,
+    correction_method: CorrectionMethod,
+    compute_logfoldchanges: Option<bool>,
+    pseudocount: Option<f64>,
+) -> anyhow::Result<DataFrame> {
+    let method = method.unwrap_or(TestMethod::TTest(TTestType::Welch));
+    let compute_lfc = compute_logfoldchanges.unwrap_or(true);
+    let pseudocount = pseudocount.unwrap_or(1.0);
+    let n_genes = n_genes.unwrap_or(adata.n_vars());
+
+    let computation = compute_rank_gene_groups(
+        adata,
+        groupby,
+        reference,
+        groups,
+        method,
+        n_genes,
+        correction_method,
+        compute_lfc,
+        pseudocount,
+    )?;
+
+    let RankGeneGroupsComputed {
+        groups: groups_to_test,
+        results,
+        reference,
+    } = computation;
+
+    let DifferentialExpressionResults {
+        mut scores,
+        mut pvals,
+        mut pvals_adj,
+        mut logfoldchanges,
+        mut gene_names,
+    } = results;
+
+    let mut group_column: Vec<String> = Vec::new();
+    let mut reference_column: Vec<String> = Vec::new();
+    let mut gene_column: Vec<String> = Vec::new();
+    let mut score_column: Vec<f64> = Vec::new();
+    let mut pval_column: Vec<f64> = Vec::new();
+    let mut pval_adj_column: Vec<f64> = Vec::new();
+    let mut logfc_column: Vec<f64> = Vec::new();
+
+    let reference_label = reference.as_deref().unwrap_or("rest");
+
+    for group in &groups_to_test {
+        let group_scores = scores
+            .remove(group)
+            .ok_or_else(|| anyhow::anyhow!("Missing score vector for group '{}'", group))?;
+        let group_pvals = pvals
+            .remove(group)
+            .ok_or_else(|| anyhow::anyhow!("Missing p-value vector for group '{}'", group))?;
+        let group_pvals_adj = pvals_adj.remove(group).ok_or_else(|| {
+            anyhow::anyhow!("Missing adjusted p-value vector for group '{}'", group)
+        })?;
+        let group_logfc = logfoldchanges.remove(group).ok_or_else(|| {
+            anyhow::anyhow!("Missing log-fold change vector for group '{}'", group)
+        })?;
+        let group_gene_names = gene_names
+            .remove(group)
+            .ok_or_else(|| anyhow::anyhow!("Missing gene names for group '{}'", group))?;
+
+        let expected_len = group_gene_names.len();
+        if group_scores.len() != expected_len
+            || group_pvals.len() != expected_len
+            || group_pvals_adj.len() != expected_len
+            || group_logfc.len() != expected_len
+        {
+            return Err(anyhow::anyhow!(
+                "Inconsistent result lengths for group '{}': expected {} entries",
+                group,
+                expected_len
+            ));
+        }
+
+        group_column.extend(std::iter::repeat_n(group.clone(), expected_len));
+        reference_column.extend(std::iter::repeat_n(
+            reference_label.to_string(),
+            expected_len,
+        ));
+        gene_column.extend(group_gene_names);
+        score_column.extend(group_scores);
+        pval_column.extend(group_pvals);
+        pval_adj_column.extend(group_pvals_adj);
+        logfc_column.extend(group_logfc);
+    }
+
+    let df = DataFrame::new(vec![
+        Series::new("group".into(), group_column).into(),
+        Series::new("reference".into(), reference_column).into(),
+        Series::new("gene".into(), gene_column).into(),
+        Series::new("score".into(), score_column).into(),
+        Series::new("pval".into(), pval_column).into(),
+        Series::new("pval_adj".into(), pval_adj_column).into(),
+        Series::new("logfoldchange".into(), logfc_column).into(),
+    ])?;
+
+    Ok(df)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn compute_rank_gene_groups(
+    adata: &IMAnnData,
+    groupby: &str,
+    reference: Option<&str>,
+    groups: Option<&[&str]>,
+    method: TestMethod,
+    n_genes: usize,
+    correction_method: CorrectionMethod,
+    compute_lfc: bool,
+    pseudocount: f64,
+) -> anyhow::Result<RankGeneGroupsComputed> {
     let all_groups = get_unique_groups(adata, groupby)?;
     let groups_to_test = filter_groups_to_test(&all_groups, groups)?;
     let reference_group = resolve_reference_group(&all_groups, reference)?;
+
     let var_names = adata.var_names();
 
     let x = adata.x();
     let read_guard = x.0.read_inner();
     let data = read_guard.deref();
 
-    let result_maps = match data {
+    let correction_method_owned = correction_method;
+
+    let results = match data {
         ArrayData::CsrMatrix(matrix) => match matrix {
             DynCsrMatrix::F32(csr_matrix) => run_differential_expression(
                 adata,
@@ -218,7 +380,7 @@ pub fn rank_gene_groups(
                 &reference_group,
                 groupby,
                 method,
-                correction_method,
+                correction_method_owned.clone(),
                 compute_lfc,
                 pseudocount,
                 n_genes,
@@ -231,7 +393,7 @@ pub fn rank_gene_groups(
                 &reference_group,
                 groupby,
                 method,
-                correction_method,
+                correction_method_owned,
                 compute_lfc,
                 pseudocount,
                 n_genes,
@@ -249,28 +411,18 @@ pub fn rank_gene_groups(
         ),
     };
 
-    store_results(
-        adata,
-        &key,
-        &groups_to_test,
-        result_maps.scores,
-        result_maps.pvals,
-        result_maps.pvals_adj,
-        result_maps.logfoldchanges,
-        result_maps.gene_names,
-        method,
-        groupby,
-        reference,
-    )?;
-
-    Ok(())
+    Ok(RankGeneGroupsComputed {
+        groups: groups_to_test,
+        results,
+        reference: reference_group,
+    })
 }
 
 /// Container for organizing differential expression results across multiple groups.
 ///
 /// This struct holds the complete results of differential expression analysis,
 /// with separate collections for each group tested.
-struct DifferentialExpressionResults {
+pub struct DifferentialExpressionResults {
     /// Test statistics (t-statistic, U-statistic, etc.) for each group
     scores: HashMap<String, Vec<f64>>,
     /// Raw p-values before multiple testing correction
@@ -281,6 +433,12 @@ struct DifferentialExpressionResults {
     logfoldchanges: HashMap<String, Vec<f64>>,
     /// Gene names ranked by significance for each group
     gene_names: HashMap<String, Vec<String>>,
+}
+
+struct RankGeneGroupsComputed {
+    groups: Vec<String>,
+    results: DifferentialExpressionResults,
+    reference: Option<String>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -357,7 +515,7 @@ where
 struct GroupTestResults {
     /// Test statistics ranked by significance
     scores: Vec<f64>,
-    /// Raw p-values ranked by significance  
+    /// Raw p-values ranked by significance
     pvals: Vec<f64>,
     /// Multiple testing corrected p-values ranked by significance
     pvals_adj: Vec<f64>,
@@ -569,7 +727,7 @@ where
 ///
 /// This function handles different data types commonly used for group labels:
 /// - String columns
-/// - Integer columns (converted to strings)  
+/// - Integer columns (converted to strings)
 /// - Categorical columns (with proper ordering preservation)
 ///
 /// # Arguments
@@ -868,7 +1026,7 @@ fn store_results(
     gene_names: HashMap<String, Vec<String>>,
     method: TestMethod,
     groupby: &str,
-    reference: Option<&str>,
+    reference: Option<String>,
 ) -> anyhow::Result<()> {
     let scores_df = create_dataframe_from_map(&scores)?;
     let pvals_df = create_dataframe_from_map(&pvals)?;
@@ -912,7 +1070,7 @@ fn store_results(
     uns.add_data(
         format!("{}_params_reference", result_key),
         IMElement::new(Data::Scalar(DynScalar::String(
-            reference.unwrap_or("rest").to_string(),
+            reference.unwrap_or("rest".to_string()).to_string(),
         ))),
     )?;
 
