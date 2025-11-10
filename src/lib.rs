@@ -7,6 +7,9 @@ pub mod io;
 pub mod memory;
 pub mod shared;
 
+#[cfg(feature = "db-io")]
+pub mod connectors;
+
 pub use shared::convert_to_array_f64;
 pub use shared::ComputationMode;
 pub use shared::FeatureSelection;

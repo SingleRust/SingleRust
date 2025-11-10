@@ -51,6 +51,7 @@
 //! - **GPU Acceleration**: Planned integration with GPU compute libraries
 
 pub mod pca;
+pub mod tsne;
 
 /// Methods for selecting features (genes) before dimensionality reduction.
 ///
