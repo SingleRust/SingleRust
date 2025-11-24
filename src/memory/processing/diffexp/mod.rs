@@ -83,9 +83,9 @@ use anndata_memory::{IMAnnData, IMElement};
 use anyhow::Ok;
 use nalgebra_sparse::CsrMatrix;
 use ndarray::parallel::prelude::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator};
-use polars::datatypes::{CategoricalOrdering, DataType};
+use polars::datatypes::{DataType};
 use polars::frame::DataFrame;
-use polars::prelude::NamedFrom;
+use polars::prelude::{NamedFrom};
 use polars::series::Series;
 use single_statistics::testing::correction::{
     benjamini_hochberg_correction, benjamini_yekutieli_correction, bonferroni_correction,
@@ -739,7 +739,7 @@ where
 fn get_unique_groups(adata: &IMAnnData, groupby: &str) -> anyhow::Result<Vec<String>> {
     let group_col = adata.obs().get_column_from_df(groupby)?;
 
-    let mut all_groups = match group_col.dtype() {
+    let mut all_groups: Vec<String> = match group_col.dtype() {
         DataType::String => {
             let string_col = group_col.str()?;
             let mut unique_groups = std::collections::HashSet::new();
@@ -771,25 +771,7 @@ fn get_unique_groups(adata: &IMAnnData, groupby: &str) -> anyhow::Result<Vec<Str
 
             unique_groups.into_iter().collect()
         }
-        DataType::Categorical(Some(mapping), ordering) => {
-            let categories = mapping.get_categories();
-            let mut unique_groups = Vec::new();
-
-            for i in 0..categories.len() {
-                let category = categories.value(i);
-                unique_groups.push(category.to_string());
-            }
-
-            match ordering {
-                CategoricalOrdering::Physical => {}
-                CategoricalOrdering::Lexical => {
-                    unique_groups.sort();
-                }
-            }
-
-            unique_groups
-        }
-        DataType::Categorical(None, _) => {
+        DataType::Categorical(_, _) => {
             let string_col = group_col.cast(&DataType::String)?;
             let string_col = string_col.str()?;
             let mut unique_groups = std::collections::HashSet::new();
@@ -810,9 +792,7 @@ fn get_unique_groups(adata: &IMAnnData, groupby: &str) -> anyhow::Result<Vec<Str
         }
     };
 
-    if !matches!(group_col.dtype(), DataType::Categorical(Some(_), _)) {
-        all_groups.sort();
-    }
+    all_groups.sort();
     Ok(all_groups)
 }
 
