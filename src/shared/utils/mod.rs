@@ -1,5 +1,6 @@
 use anndata::data::SelectInfoElem;
 use ndarray::Slice;
+use polars::prelude::{CsvParseOptions, CsvReadOptions, DataFrame, NullValues, SerReader};
 
 pub(crate) fn select_info_elem_to_indices(
     elem: &SelectInfoElem,
@@ -38,4 +39,26 @@ pub(crate) fn select_info_elem_to_indices(
             Ok(indices)
         }
     }
+}
+
+pub(crate) fn dataframe_from_csv_bytes(
+    bytes: &[u8],
+    separator: u8,
+    has_header: bool,
+    infer_schema_length: Option<usize>,
+) -> anyhow::Result<DataFrame> {
+    let cursor = std::io::Cursor::new(bytes);
+    let csv_parse_options = CsvParseOptions::default()
+        .with_separator(separator)
+        .with_quote_char(Some(b'"'))
+        .with_null_values(Some(NullValues::AllColumnsSingle("NA".to_string().into())));
+
+    let df = CsvReadOptions::default()
+        .with_has_header(has_header)
+        .with_infer_schema_length(infer_schema_length)
+        .with_parse_options(csv_parse_options)
+        .into_reader_with_file_handle(cursor)
+        .finish()?;
+
+    Ok(df)
 }
